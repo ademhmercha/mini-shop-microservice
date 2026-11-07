@@ -1,0 +1,361 @@
+openapi: 3.0.3
+info:
+  title: ShopLite - service auth
+  version: 1.0.0
+  description: >
+    Comptes, sessions et profil. Seul service qui émet des jetons.
+    Accessible depuis le navigateur sous le préfixe /api/auth (Nginx retire ce préfixe).
+servers:
+  - url: /api/auth
+tags:
+  - name: Authentification
+  - name: Profil
+  - name: Sessions
+  - name: Opérations
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    FreshToken:
+      name: X-Fresh-Token
+      in: header
+      required: true
+      description: Jeton de confirmation récente du mot de passe (voir POST /reauth), valable 5 minutes.
+      schema: { type: string }
+    CsrfHeader:
+      name: X-Requested-With
+      in: header
+      required: true
+      description: Doit valoir "shoplite" (protection CSRF). L'en-tête Origin doit aussi correspondre au site.
+      schema: { type: string, enum: [shoplite] }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string }
+            fields: { type: object, additionalProperties: { type: string } }
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        emailVerified: { type: boolean }
+        firstName: { type: string }
+        lastName: { type: string }
+        shippingAddress: { type: object, nullable: true }
+        twoFactorEnabled: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    Session:
+      type: object
+      properties:
+        accessToken: { type: string }
+        expiresIn: { type: integer, example: 900 }
+        user: { $ref: '#/components/schemas/User' }
+  responses:
+    Error:
+      description: Erreur
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+paths:
+  /register:
+    post:
+      tags: [Authentification]
+      summary: Inscription (réponse identique que l'adresse existe ou non)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 12, maxLength: 128 }
+      responses:
+        '202': { description: Demande acceptée }
+        '400': { $ref: '#/components/responses/Error' }
+  /verify-email:
+    post:
+      tags: [Authentification]
+      summary: Confirme une adresse e-mail (inscription ou changement) avec un lien à usage unique de 24 h
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [token], properties: { token: { type: string } } }
+      responses:
+        '200': { description: Adresse confirmée }
+        '400': { $ref: '#/components/responses/Error' }
+  /login:
+    post:
+      tags: [Authentification]
+      summary: Connexion. Si la double authentification est active, renvoie un défi.
+      parameters: [{ $ref: '#/components/parameters/CsrfHeader' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Jeton d'accès (cookie de rafraîchissement HttpOnly posé) ou défi 2FA
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/Session'
+                  - type: object
+                    properties:
+                      twoFactorRequired: { type: boolean }
+                      challengeToken: { type: string }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /login/2fa:
+    post:
+      tags: [Authentification]
+      summary: Seconde étape de connexion (code TOTP ou code de secours)
+      parameters: [{ $ref: '#/components/parameters/CsrfHeader' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [challengeToken, code]
+              properties: { challengeToken: { type: string }, code: { type: string } }
+      responses:
+        '200':
+          description: Session ouverte
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Error' }
+  /refresh:
+    post:
+      tags: [Authentification]
+      summary: Renouvelle le jeton d'accès (rotation du cookie de rafraîchissement, détection de réutilisation)
+      parameters: [{ $ref: '#/components/parameters/CsrfHeader' }]
+      responses:
+        '200':
+          description: Nouveau jeton d'accès
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Error' }
+  /logout:
+    post:
+      tags: [Authentification]
+      summary: Ferme la session courante
+      parameters: [{ $ref: '#/components/parameters/CsrfHeader' }]
+      responses:
+        '204': { description: Déconnecté }
+  /forgot-password:
+    post:
+      tags: [Authentification]
+      summary: Demande de lien de réinitialisation (valable 30 min), réponse identique pour tout e-mail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [email], properties: { email: { type: string, format: email } } }
+      responses:
+        '202': { description: Demande acceptée }
+  /reset-password:
+    post:
+      tags: [Authentification]
+      summary: Choisit un nouveau mot de passe avec un lien à usage unique ; révoque toutes les sessions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties: { token: { type: string }, newPassword: { type: string } }
+      responses:
+        '200': { description: Mot de passe réinitialisé }
+        '400': { $ref: '#/components/responses/Error' }
+  /reauth:
+    post:
+      tags: [Authentification]
+      summary: Confirmation récente du mot de passe ; renvoie un jeton "fresh" de 5 minutes
+      security: [{ bearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [password], properties: { password: { type: string } } }
+      responses:
+        '200': { description: Jeton de confirmation }
+        '403': { $ref: '#/components/responses/Error' }
+  /resend-verification:
+    post:
+      tags: [Authentification]
+      summary: Renvoie le lien de vérification de l'adresse e-mail (une fois par minute)
+      security: [{ bearer: [] }]
+      responses:
+        '202': { description: Lien renvoyé (ou adresse déjà vérifiée) }
+        '429': { $ref: '#/components/responses/Error' }
+  /me:
+    get:
+      tags: [Profil]
+      summary: Profil de l'utilisateur connecté
+      security: [{ bearer: [] }]
+      responses:
+        '200': { description: Profil }
+    patch:
+      tags: [Profil]
+      summary: Met à jour prénom, nom et adresse de livraison par défaut
+      security: [{ bearer: [] }]
+      responses:
+        '200': { description: Profil mis à jour }
+        '400': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Profil]
+      summary: Supprime le compte (mot de passe obligatoire, RGPD)
+      security: [{ bearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [password], properties: { password: { type: string } } }
+      responses:
+        '204': { description: Compte supprimé }
+        '403': { $ref: '#/components/responses/Error' }
+  /me/password:
+    post:
+      tags: [Profil]
+      summary: Change le mot de passe ; révoque les autres sessions
+      security: [{ bearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties: { currentPassword: { type: string }, newPassword: { type: string } }
+      responses:
+        '200': { description: Mot de passe changé }
+        '403': { $ref: '#/components/responses/Error' }
+  /me/email:
+    post:
+      tags: [Profil]
+      summary: Demande de changement d'e-mail ; effectif après confirmation de la nouvelle adresse
+      security: [{ bearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password, newEmail]
+              properties: { password: { type: string }, newEmail: { type: string, format: email } }
+      responses:
+        '202': { description: Demande acceptée }
+  /me/2fa/setup:
+    post:
+      tags: [Profil]
+      summary: Génère un secret TOTP et un QR code
+      security: [{ bearer: [] }]
+      parameters: [{ $ref: '#/components/parameters/FreshToken' }]
+      responses:
+        '200': { description: Secret, URL otpauth et QR code (data URL) }
+  /me/2fa/enable:
+    post:
+      tags: [Profil]
+      summary: Active la 2FA avec un code à 6 chiffres ; renvoie 10 codes de secours (affichés une seule fois)
+      security: [{ bearer: [] }]
+      parameters: [{ $ref: '#/components/parameters/FreshToken' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [code], properties: { code: { type: string } } }
+      responses:
+        '200': { description: Codes de secours }
+  /me/2fa/disable:
+    post:
+      tags: [Profil]
+      summary: Désactive la 2FA (mot de passe obligatoire)
+      security: [{ bearer: [] }]
+      parameters: [{ $ref: '#/components/parameters/FreshToken' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [password], properties: { password: { type: string } } }
+      responses:
+        '200': { description: 2FA désactivée }
+  /me/sessions:
+    get:
+      tags: [Sessions]
+      summary: Sessions actives (appareil, date, dernière activité)
+      security: [{ bearer: [] }]
+      responses:
+        '200': { description: Liste des sessions }
+    delete:
+      tags: [Sessions]
+      summary: Déconnecte toutes les autres sessions
+      security: [{ bearer: [] }]
+      parameters: [{ $ref: '#/components/parameters/FreshToken' }]
+      responses:
+        '200': { description: Nombre de sessions révoquées }
+  /me/sessions/{id}:
+    delete:
+      tags: [Sessions]
+      summary: Déconnecte une session
+      security: [{ bearer: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/FreshToken' }
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Session révoquée }
+        '404': { $ref: '#/components/responses/Error' }
+  /me/export:
+    get:
+      tags: [Profil]
+      summary: Export JSON des données personnelles (RGPD)
+      security: [{ bearer: [] }]
+      parameters: [{ $ref: '#/components/parameters/FreshToken' }]
+      responses:
+        '200': { description: Données personnelles }
+  /.well-known/jwks.json:
+    get:
+      tags: [Opérations]
+      summary: Clés publiques de vérification des jetons (JWKS)
+      responses:
+        '200': { description: JWKS }
+  /healthz:
+    get:
+      tags: [Opérations]
+      summary: Le processus est vivant
+      responses:
+        '200': { description: OK }
+  /readyz:
+    get:
+      tags: [Opérations]
+      summary: PostgreSQL et Redis sont joignables
+      responses:
+        '200': { description: Prêt }
+        '503': { description: Dépendance indisponible }
+  /metrics:
+    get:
+      tags: [Opérations]
+      summary: Métriques Prometheus
+      responses:
+        '200': { description: Format texte Prometheus }

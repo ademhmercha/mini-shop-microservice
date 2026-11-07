@@ -1,0 +1,26 @@
+# Dépendances et sorties de build
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+*.tsbuildinfo
+
+# Secrets et configuration locale : ne jamais commiter
+.env
+.env.*
+!.env.example
+.secrets/
+*.pem
+*.key
+
+# Logs et fichiers temporaires
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Éditeurs
+.idea/
+.vscode/
+*.swp

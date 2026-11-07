@@ -1,0 +1,105 @@
+openapi: 3.0.3
+info:
+  title: ShopLite - service orders
+  version: 1.0.0
+  description: >
+    Commandes. Création réservée aux utilisateurs connectés dont l'e-mail est vérifié (jeton vérifié via le JWKS du service auth).
+    Le paiement se fait sur place : aucune passerelle de paiement. Les prix viennent toujours du catalogue.
+    Accessible sous /api/orders (Nginx retire ce préfixe).
+servers:
+  - url: /api/orders
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer, bearerFormat: JWT }
+  schemas:
+    Address:
+      type: object
+      required: [line1, postalCode, city]
+      properties:
+        line1: { type: string }
+        line2: { type: string }
+        postalCode: { type: string }
+        city: { type: string }
+        country: { type: string, default: France }
+    Order:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        reference: { type: string, example: MA-000042 }
+        status: { type: string, enum: [pending, ready, completed, cancelled] }
+        paymentMethod: { type: string, enum: [on_site] }
+        totalCents: { type: integer }
+        currency: { type: string }
+        shippingAddress: { $ref: '#/components/schemas/Address' }
+        note: { type: string }
+        createdAt: { type: string, format: date-time }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              productId: { type: string, format: uuid }
+              name: { type: string }
+              unitPriceCents: { type: integer }
+              quantity: { type: integer }
+              lineTotalCents: { type: integer }
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties: { code: { type: string }, message: { type: string }, requestId: { type: string }, upstream: { type: string } }
+paths:
+  /:
+    post:
+      summary: Crée une commande à partir du panier de l'utilisateur
+      description: Lit le panier dans cart, vérifie produits et prix dans catalog, enregistre la commande puis vide le panier.
+      security: [{ bearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [shippingAddress]
+              properties:
+                shippingAddress: { $ref: '#/components/schemas/Address' }
+                note: { type: string, maxLength: 300 }
+      responses:
+        '201': { description: Commande créée, content: { application/json: { schema: { type: object, properties: { order: { $ref: '#/components/schemas/Order' } } } } } }
+        '400': { description: Panier vide ou entrée invalide }
+        '401': { description: Authentification requise }
+        '403': { description: E-mail non vérifié }
+        '409': { description: Produit indisponible }
+        '502': { description: Un service appelé répond en erreur }
+        '503': { description: Un service appelé est indisponible (délai dépassé) }
+  /me:
+    get:
+      summary: Commandes de l'utilisateur connecté (plus récentes d'abord)
+      security: [{ bearer: [] }]
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 10, maximum: 50 } }
+      responses:
+        '200': { description: Page de commandes }
+  /{id}:
+    get:
+      summary: Détail d'une commande de l'utilisateur (404 pour la commande d'un autre)
+      security: [{ bearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Commande }
+        '404': { description: Introuvable }
+  /healthz:
+    get:
+      summary: Le processus est vivant
+      responses: { '200': { description: OK } }
+  /readyz:
+    get:
+      summary: PostgreSQL est joignable
+      responses: { '200': { description: Prêt }, '503': { description: Indisponible } }
+  /metrics:
+    get:
+      summary: Métriques Prometheus
+      responses: { '200': { description: Format texte Prometheus } }

@@ -1,0 +1,80 @@
+openapi: 3.0.3
+info:
+  title: ShopLite - service catalog
+  version: 1.0.0
+  description: Produits et catégories de Maison Argile. Lecture publique. Accessible sous /api/catalog (Nginx retire ce préfixe).
+servers:
+  - url: /api/catalog
+components:
+  schemas:
+    Product:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string, example: bol-aube }
+        name: { type: string, example: Bol Aube }
+        description: { type: string }
+        details: { type: string }
+        priceCents: { type: integer, example: 2400 }
+        currency: { type: string, example: EUR }
+        illustration: { type: string }
+        tone: { type: string, enum: [terracotta, sauge, creme, charbon] }
+        featured: { type: boolean }
+        category:
+          type: object
+          properties: { slug: { type: string }, name: { type: string } }
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties: { code: { type: string }, message: { type: string }, requestId: { type: string } }
+paths:
+  /products:
+    get:
+      summary: Liste paginée des produits
+      parameters:
+        - { name: category, in: query, schema: { type: string }, description: Slug de catégorie }
+        - { name: featured, in: query, schema: { type: string, enum: ['true', 'false'] } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 12 } }
+        - { name: ids, in: query, schema: { type: string }, description: UUID séparés par des virgules (max 50) }
+      responses:
+        '200':
+          description: Page de produits
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Product' } }
+                  page: { type: integer }
+                  pageSize: { type: integer }
+                  total: { type: integer }
+                  totalPages: { type: integer }
+        '400': { description: Paramètre invalide, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /products/{id}:
+    get:
+      summary: Détail d'un produit (par identifiant ou slug)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Produit, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: Introuvable, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /categories:
+    get:
+      summary: Liste des catégories
+      responses:
+        '200': { description: Catégories avec nombre de produits }
+  /healthz:
+    get:
+      summary: Le processus est vivant
+      responses: { '200': { description: OK } }
+  /readyz:
+    get:
+      summary: PostgreSQL est joignable
+      responses: { '200': { description: Prêt }, '503': { description: Indisponible } }
+  /metrics:
+    get:
+      summary: Métriques Prometheus
+      responses: { '200': { description: Format texte Prometheus } }

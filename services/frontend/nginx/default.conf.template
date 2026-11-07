@@ -1,0 +1,78 @@
+# Modèle Nginx : les variables ${...} sont remplacées au démarrage (envsubst) par les adresses des services.
+# Les services backend retirent le préfixe /api/<service> : ils ne sont jamais exposés directement.
+
+server {
+    listen 8080;
+    server_name _;
+    server_tokens off;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    client_max_body_size 16k;
+
+    # En-têtes de sécurité (aucune ressource externe : polices et images sont locales)
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+
+    # Santé du conteneur
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok";
+    }
+
+    # Endpoints techniques et appels internes : jamais accessibles depuis l'extérieur
+    location ~ ^/api/[^/]+/(metrics|docs|openapi\.json|healthz|readyz|internal) {
+        return 404;
+    }
+
+    location = /api/cart {
+        proxy_pass http://${CART_UPSTREAM}/;
+        include /etc/nginx/proxy_params;
+    }
+
+    location /api/auth/ {
+        proxy_pass http://${AUTH_UPSTREAM}/;
+        include /etc/nginx/proxy_params;
+    }
+    location /api/catalog/ {
+        proxy_pass http://${CATALOG_UPSTREAM}/;
+        include /etc/nginx/proxy_params;
+    }
+    location /api/cart/ {
+        proxy_pass http://${CART_UPSTREAM}/;
+        include /etc/nginx/proxy_params;
+    }
+    location /api/orders/ {
+        proxy_pass http://${ORDERS_UPSTREAM}/;
+        include /etc/nginx/proxy_params;
+    }
+
+    location /api/ {
+        return 404;
+    }
+
+    # Fichiers fingerprintés de Vite : cache long
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        add_header Content-Security-Policy "default-src 'self'" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+
+    # Application monopage : toute autre route renvoie index.html
+    location / {
+        add_header Cache-Control "no-cache";
+        add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        try_files $uri $uri/ /index.html;
+    }
+}

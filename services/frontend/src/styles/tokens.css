@@ -1,0 +1,37 @@
+/* Palette « Maison Argile » : valeurs imposées, ne pas modifier. */
+:root {
+  --bg: #F5EFE6;            /* fond principal */
+  --surface: #FBF8F3;       /* surface des cartes */
+  --text: #2B2420;          /* texte principal */
+  --text-2: #6B5D52;        /* texte secondaire */
+  --accent: #B5532F;        /* terre cuite : actions */
+  --accent-2: #7A8B6F;      /* vert sauge : badges et confirmations */
+  --border: #E2D6C6;        /* bordures */
+
+  /* Nuances dérivées (jamais de nouvelle teinte) */
+  --accent-hover: color-mix(in srgb, var(--accent) 84%, var(--text));
+  --accent-tint: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  --sage-tint: color-mix(in srgb, var(--accent-2) 22%, var(--surface));
+  --border-strong: color-mix(in srgb, var(--border) 60%, var(--text-2));
+  /* Erreurs : terre cuite assombrie, contraste AA sur fond et surface */
+  --danger: color-mix(in srgb, var(--accent) 70%, var(--text));
+  --danger-tint: color-mix(in srgb, var(--accent) 8%, var(--surface));
+
+  --font-display: 'Fraunces Variable', 'Iowan Old Style', Georgia, serif;
+  --font-body: 'Manrope Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --radius-sm: 4px;
+  --radius: 8px;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 5rem;
+  --space-9: 8rem;
+  --page-gutter: clamp(1rem, 4vw, 2.75rem);
+  --content-max: 1240px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
