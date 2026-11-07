@@ -14,7 +14,8 @@ x-node-env: &node-env
   NODE_ENV: production
   LOG_LEVEL: info
   # Le site est servi en http sur localhost : le cookie Secure doit être désactivé en local uniquement.
-  APP_ORIGIN: http://localhost:8080
+  # Doit correspondre à l'adresse du site (CORS, CSRF, liens des e-mails). Port modifiable : FRONTEND_PORT=18080 docker compose up
+  APP_ORIGIN: http://localhost:${FRONTEND_PORT:-8080}
   COOKIE_SECURE: "false"
   TRUST_PROXY: "1"
 
@@ -35,11 +36,14 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./infra/postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      # En TCP (127.0.0.1) et non sur le socket Unix : pendant l'exécution de docker-entrypoint-initdb.d, l'image
+      # démarre un serveur TEMPORAIRE qui n'écoute que sur le socket. Un test sur le socket le déclarerait « healthy »
+      # juste avant son redémarrage. Seul le serveur définitif écoute en TCP.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U postgres -d postgres"]
       interval: 5s
       timeout: 3s
       retries: 20
-      start_period: 10s
+      start_period: 30s
     networks: [backend]
 
   redis:
@@ -196,7 +200,7 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:8080"
     environment:
       AUTH_UPSTREAM: auth:3001
       CATALOG_UPSTREAM: catalog:3002

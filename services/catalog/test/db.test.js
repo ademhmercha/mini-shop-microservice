@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const client = { query: vi.fn(), release: vi.fn() };
-const pool = { query: vi.fn(), connect: vi.fn(async () => client), end: vi.fn() };
+const pool = { query: vi.fn(), connect: vi.fn(async () => client), end: vi.fn(), on: vi.fn() };
 vi.mock('pg', () => ({ default: { Pool: function Pool() { return pool; } } }));
 
 const { createPgDb } = await import('../src/db.js');
@@ -20,6 +20,17 @@ describe('adaptateur PostgreSQL', () => {
     await db.ping();
     await db.close();
     expect(pool.end).toHaveBeenCalled();
+  });
+
+  it('gère les erreurs du pool (redémarrage de PostgreSQL) sans faire tomber le processus', () => {
+    const onError = vi.fn();
+    createPgDb('x', { onError });
+    expect(pool.on).toHaveBeenCalledWith('error', onError);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    createPgDb('x');
+    pool.on.mock.calls.at(-1)[1](Object.assign(new Error('terminating connection'), { code: '57P01' }));
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('57P01'));
+    spy.mockRestore();
   });
 
   it('valide une transaction réussie', async () => {

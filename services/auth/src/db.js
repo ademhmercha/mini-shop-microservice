@@ -1,8 +1,13 @@
 import pg from 'pg';
 
+const defaultOnError = (err) =>
+  console.error(JSON.stringify({ level: 'error', msg: 'erreur du pool PostgreSQL', err: { message: err.message, code: err.code } }));
+
 /** Adaptateur minimal : query(sql, params) -> { rows }, tx(fn), ping(), close(). */
-export function createPgDb(connectionString) {
+export function createPgDb(connectionString, { onError = defaultOnError } = {}) {
   const pool = new pg.Pool({ connectionString, max: 10, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 });
+  // Sans ce gestionnaire, un redémarrage de PostgreSQL ferait tomber le processus (événement « error » non géré).
+  pool.on('error', onError);
   return {
     query: (sql, params = []) => pool.query(sql, params),
     async tx(fn) {
