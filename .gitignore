@@ -24,3 +24,9 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Terraform
+.terraform/
+*.tfstate*
+*.tfplan
+crash.log
