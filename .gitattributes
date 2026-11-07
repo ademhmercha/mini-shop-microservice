@@ -1,5 +1,8 @@
-* text=auto
-*.sh text eol=lf
-*.conf text eol=lf
-*.template text eol=lf
-Dockerfile text eol=lf
+# Fins de ligne Linux pour tout le dépôt : le code tourne sous Linux
+# (WSL, conteneurs, machines du cluster)
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
