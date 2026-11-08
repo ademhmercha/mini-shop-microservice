@@ -30,3 +30,8 @@ Thumbs.db
 *.tfstate*
 *.tfplan
 crash.log
+
+# Ansible
+ansible/.ansible/
+*.retry
+.vault_pass

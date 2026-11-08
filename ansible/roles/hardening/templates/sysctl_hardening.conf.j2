@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+# Paramètres de durcissement compatibles avec Kubernetes et Calico.
+{% for param in hardening_sysctl_params %}
+
+# {{ param.comment | trim }}
+{{ param.name }} = {{ param.value }}
+{% endfor %}

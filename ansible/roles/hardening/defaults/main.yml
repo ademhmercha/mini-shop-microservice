@@ -1,0 +1,91 @@
+---
+# --- SSH ---
+hardening_ssh_user: azureuser
+hardening_ssh_allowed_users:
+  - "{{ hardening_ssh_user }}"
+hardening_ssh_max_auth_tries: 3
+hardening_ssh_login_grace_time: 30
+hardening_ssh_config_file: /etc/ssh/sshd_config.d/10-shoplite-hardening.conf
+
+# --- Mises à jour automatiques ---
+hardening_unattended_packages:
+  - unattended-upgrades
+  - apt-listchanges
+
+# --- Paramètres noyau (compatibles Kubernetes et Calico) ---
+hardening_sysctl_file: /etc/sysctl.d/99-shoplite-hardening.conf
+hardening_sysctl_params:
+  - name: net.ipv4.ip_forward
+    value: 1
+    comment: >-
+      INDISPENSABLE à Kubernetes : le noyau doit router les paquets entre
+      pods et nœuds. Ne jamais mettre à 0.
+  - name: net.ipv4.conf.all.rp_filter
+    value: 2
+    comment: >-
+      Filtrage du chemin inverse en mode "loose" (2). Le mode strict (1)
+      casse Calico (trafic asymétrique entre pods) ; 2 garde une protection
+      contre l'usurpation d'IP.
+  - name: net.ipv4.conf.default.rp_filter
+    value: 2
+    comment: Idem pour les futures interfaces (veth des pods).
+  - name: net.ipv4.conf.all.accept_source_route
+    value: 0
+    comment: Refuser le routage par la source (technique d'usurpation).
+  - name: net.ipv4.conf.default.accept_source_route
+    value: 0
+    comment: Idem pour les nouvelles interfaces.
+  - name: net.ipv4.conf.all.accept_redirects
+    value: 0
+    comment: Ignorer les redirections ICMP (détournement de routes).
+  - name: net.ipv4.conf.default.accept_redirects
+    value: 0
+    comment: Idem pour les nouvelles interfaces.
+  - name: net.ipv4.conf.all.secure_redirects
+    value: 0
+    comment: Ignorer aussi les redirections ICMP venant des passerelles connues.
+  - name: net.ipv4.conf.default.secure_redirects
+    value: 0
+    comment: Idem pour les nouvelles interfaces.
+  - name: net.ipv4.conf.all.send_redirects
+    value: 0
+    comment: Ne pas émettre de redirections ICMP (la machine n'est pas un routeur classique).
+  - name: net.ipv4.conf.default.send_redirects
+    value: 0
+    comment: Idem pour les nouvelles interfaces.
+  - name: net.ipv6.conf.all.accept_redirects
+    value: 0
+    comment: Ignorer les redirections ICMPv6.
+  - name: net.ipv6.conf.default.accept_redirects
+    value: 0
+    comment: Idem pour les nouvelles interfaces IPv6.
+  - name: net.ipv4.conf.all.log_martians
+    value: 1
+    comment: Journaliser les paquets aux adresses source impossibles.
+  - name: net.ipv4.icmp_echo_ignore_broadcasts
+    value: 1
+    comment: Ignorer les pings de diffusion (amplification smurf).
+  - name: net.ipv4.icmp_ignore_bogus_error_responses
+    value: 1
+    comment: Ignorer les réponses ICMP d'erreur mal formées.
+  - name: net.ipv4.tcp_syncookies
+    value: 1
+    comment: Protection contre les attaques SYN flood.
+  - name: kernel.randomize_va_space
+    value: 2
+    comment: ASLR complet (randomisation de l'espace d'adressage).
+  - name: kernel.kptr_restrict
+    value: 2
+    comment: Masquer les adresses du noyau aux utilisateurs.
+  - name: kernel.dmesg_restrict
+    value: 1
+    comment: Réserver dmesg à root.
+  - name: fs.protected_hardlinks
+    value: 1
+    comment: Empêcher la création de liens durs vers des fichiers d'autrui.
+  - name: fs.protected_symlinks
+    value: 1
+    comment: Empêcher le suivi de liens symboliques piégés dans les répertoires partagés.
+  - name: fs.suid_dumpable
+    value: 0
+    comment: Pas de core dump pour les programmes setuid.

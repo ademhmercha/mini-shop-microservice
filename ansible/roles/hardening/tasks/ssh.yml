@@ -1,0 +1,47 @@
+---
+# Garde-fou anti-blocage : on ne désactive les mots de passe que si
+# l'utilisateur possède au moins une clé publique autorisée.
+- name: Chercher le fichier authorized_keys de l'utilisateur SSH
+  ansible.builtin.stat:
+    path: "/home/{{ hardening_ssh_user }}/.ssh/authorized_keys"
+  register: hardening_authorized_keys
+
+- name: Vérifier qu'une clé SSH est bien installée avant de durcir
+  ansible.builtin.assert:
+    that:
+      - hardening_authorized_keys.stat.exists
+      - hardening_authorized_keys.stat.size > 0
+    fail_msg: "Aucune clé dans authorized_keys : le durcissement SSH pourrait vous bloquer."
+    quiet: true
+
+# Le fichier est validé par `sshd -t` AVANT d'être installé : une erreur de
+# syntaxe fait échouer la tâche sans toucher à la configuration en place.
+- name: Installer la configuration SSH durcie (sshd_config.d)
+  ansible.builtin.template:
+    src: sshd_hardening.conf.j2
+    dest: "{{ hardening_ssh_config_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Recharger SSH
+
+# Recharger maintenant (et non en fin de play) pour contrôler le résultat.
+# `reload` conserve les sessions ouvertes : pas de coupure.
+- name: Appliquer immédiatement la configuration SSH
+  ansible.builtin.meta: flush_handlers
+
+- name: Lire la configuration SSH effective
+  ansible.builtin.command: >-
+    /usr/sbin/sshd -T -C user={{ hardening_ssh_user }},host=localhost,addr=127.0.0.1
+  register: hardening_sshd_effective
+  changed_when: false  # lecture seule
+
+- name: Vérifier la configuration SSH effective
+  ansible.builtin.assert:
+    that:
+      - "'permitrootlogin no' in hardening_sshd_effective.stdout_lines"
+      - "'passwordauthentication no' in hardening_sshd_effective.stdout_lines"
+      - "'kbdinteractiveauthentication no' in hardening_sshd_effective.stdout_lines"
+      - "'pubkeyauthentication yes' in hardening_sshd_effective.stdout_lines"
+    quiet: true

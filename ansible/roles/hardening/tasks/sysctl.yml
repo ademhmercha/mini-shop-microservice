@@ -1,0 +1,9 @@
+---
+- name: Installer les paramètres noyau de durcissement
+  ansible.builtin.template:
+    src: sysctl_hardening.conf.j2
+    dest: "{{ hardening_sysctl_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recharger les paramètres sysctl

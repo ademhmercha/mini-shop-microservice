@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+# Chargé avant 50-cloud-init.conf (ordre alphabétique) : sshd retient la
+# première valeur rencontrée, donc ces réglages priment.
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+MaxAuthTries {{ hardening_ssh_max_auth_tries }}
+LoginGraceTime {{ hardening_ssh_login_grace_time }}
+AllowUsers {{ hardening_ssh_allowed_users | join(' ') }}

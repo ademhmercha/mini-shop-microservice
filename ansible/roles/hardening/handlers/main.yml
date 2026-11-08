@@ -1,0 +1,9 @@
+---
+- name: Recharger SSH
+  ansible.builtin.service:
+    name: ssh
+    state: reloaded
+
+- name: Recharger les paramètres sysctl
+  ansible.builtin.command: /usr/sbin/sysctl -p {{ hardening_sysctl_file }}
+  changed_when: true  # un handler ne s'exécute que si le fichier a changé

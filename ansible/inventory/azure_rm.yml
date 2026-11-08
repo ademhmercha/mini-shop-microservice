@@ -1,0 +1,22 @@
+---
+# Inventaire dynamique Azure (authentification : session `az login`).
+plugin: azure.azcollection.azure_rm
+auth_source: cli
+
+# Uniquement le groupe de ressources du projet.
+include_vm_resource_groups:
+  - rg-shoplite
+
+# Noms d'hôtes = noms des machines (cp-1, worker-1), sans suffixe aléatoire.
+plain_host_names: true
+
+# Groupes construits à partir du tag "role".
+conditional_groups:
+  control_plane: tags.role | default('') == 'control-plane'
+  workers: tags.role | default('') == 'worker'
+  k8s_cluster: tags.role | default('') in ['control-plane', 'worker']
+
+# ansible_host = IP publique ; k8s_private_ip = IP privée (pour Kubernetes).
+hostvar_expressions:
+  ansible_host: public_ipv4_address[0]
+  k8s_private_ip: private_ipv4_addresses[0]

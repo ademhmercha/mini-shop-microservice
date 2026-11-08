@@ -1,0 +1,4 @@
+---
+# Convention vars/vault : les variables sensibles vivent dans vault.yml
+# (chiffré, préfixe vault_) et sont référencées ici sous un nom lisible.
+shoplite_demo_secret: "{{ vault_demo_secret }}"

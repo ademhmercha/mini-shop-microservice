@@ -1,0 +1,26 @@
+---
+# Outils de base installés sur toutes les machines.
+common_packages:
+  - curl
+  - ca-certificates
+  - gnupg
+  - apt-transport-https
+  - jq
+  - vim
+  - htop
+  - git
+  - unzip
+  - net-tools
+  - chrony
+
+common_timezone: UTC
+
+# Service de synchronisation de l'heure (chrony est le défaut des images
+# Ubuntu Azure, il s'appuie sur l'horloge de l'hyperviseur).
+common_time_service: chrony
+
+# Groupe d'inventaire dont les machines sont listées dans /etc/hosts.
+common_hosts_group: k8s_cluster
+
+# Variable d'inventaire contenant l'IP privée de chaque machine.
+common_private_ip_var: k8s_private_ip

@@ -1,0 +1,9 @@
+---
+- name: Configuration de base et durcissement du cluster
+  hosts: k8s_cluster
+  become: true
+  roles:
+    - role: common
+      tags: [common]
+    - role: hardening
+      tags: [hardening]

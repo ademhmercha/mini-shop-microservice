@@ -1,0 +1,19 @@
+---
+# PAS DE PARE-FEU LOCAL (UFW/iptables) : volontairement.
+# - Le filtrage est déjà assuré en amont par le Network Security Group Azure
+#   (voir infra/network.tf) : SSH et API Kubernetes limités à une IP.
+# - Kubernetes (kube-proxy) et Calico gèrent eux-mêmes leurs règles iptables /
+#   nftables ; un UFW actif entrerait en conflit (paquets des pods bloqués,
+#   règles écrasées ou dupliquées).
+
+- name: Configurer le durcissement SSH
+  ansible.builtin.import_tasks: ssh.yml
+  tags: [hardening_ssh]
+
+- name: Configurer les mises à jour de sécurité automatiques
+  ansible.builtin.import_tasks: unattended_upgrades.yml
+  tags: [hardening_updates]
+
+- name: Appliquer les paramètres noyau de durcissement
+  ansible.builtin.import_tasks: sysctl.yml
+  tags: [hardening_sysctl]
