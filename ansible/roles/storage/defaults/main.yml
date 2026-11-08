@@ -1,0 +1,9 @@
+---
+storage_manifest_url: "https://raw.githubusercontent.com/rancher/local-path-provisioner/{{ platform_local_path_version }}/deploy/local-path-storage.yaml"
+storage_resources:
+  requests:
+    cpu: 10m
+    memory: 16Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi

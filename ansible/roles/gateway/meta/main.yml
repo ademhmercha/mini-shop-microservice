@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  author: shoplite
+  description: CRD Gateway API, Traefik (contrôleur) et Gateway partagée avec redirection HTTPS.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+  galaxy_tags: []
+dependencies: []

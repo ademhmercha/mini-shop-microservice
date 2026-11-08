@@ -1,0 +1,32 @@
+---
+- name: Approuver les certificats de service des kubelets
+  ansible.builtin.include_tasks: approve_csr.yml
+
+- name: Ajouter le dépôt Helm de metrics-server
+  kubernetes.core.helm_repository:
+    name: metrics-server
+    repo_url: "{{ metrics_server_repo_url }}"
+
+- name: Installer metrics-server
+  kubernetes.core.helm:
+    name: "{{ metrics_server_release }}"
+    chart_ref: metrics-server/metrics-server
+    chart_version: "{{ platform_metrics_server_chart_version }}"
+    release_namespace: "{{ metrics_server_namespace }}"
+    create_namespace: true
+    values: "{{ metrics_server_values }}"
+    state: present
+    wait: true
+    wait_timeout: 5m
+
+# Seconde passe : une CSR a pu apparaître pendant l'installation.
+- name: Approuver les certificats restants
+  ansible.builtin.include_tasks: approve_csr.yml
+
+- name: Vérifier que kubectl top nodes fonctionne
+  ansible.builtin.command: /usr/bin/kubectl --kubeconfig {{ platform_kubeconfig }} top nodes
+  register: metrics_server_top
+  until: metrics_server_top.rc == 0
+  retries: 30
+  delay: 10
+  changed_when: false  # lecture seule

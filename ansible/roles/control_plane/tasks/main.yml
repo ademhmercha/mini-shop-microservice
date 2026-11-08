@@ -38,6 +38,36 @@
     group: "{{ control_plane_user }}"
     mode: "0600"
 
+# Clusters déjà initialisés sans serverTLSBootstrap : on met aussi à jour la
+# configuration locale du kubelet et la ConfigMap partagée (futurs nœuds).
+- name: Activer serverTLSBootstrap dans la configuration du kubelet
+  ansible.builtin.lineinfile:
+    path: /var/lib/kubelet/config.yaml
+    regexp: '^serverTLSBootstrap:'
+    line: "serverTLSBootstrap: true"
+    insertafter: '^cgroupDriver:'
+  notify: Redémarrer kubelet (plan de contrôle)
+
+- name: Vérifier la ConfigMap kubelet-config du cluster
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    /usr/bin/kubectl --kubeconfig {{ control_plane_admin_conf }} -n kube-system
+    get configmap kubelet-config -o jsonpath='{.data.kubelet}' | grep -q '^serverTLSBootstrap: true'
+  args:
+    executable: /bin/bash
+  register: control_plane_kubelet_cm
+  changed_when: false  # lecture seule
+  failed_when: false  # rc != 0 signifie simplement "à mettre à jour"
+
+- name: Publier la configuration kubelet du cluster (serverTLSBootstrap)
+  ansible.builtin.command: >-
+    /usr/bin/kubeadm init phase upload-config kubelet --config {{ control_plane_config_file }}
+  when: control_plane_kubelet_cm.rc != 0
+  changed_when: true  # exécutée seulement si la ConfigMap est à mettre à jour
+
+- name: Appliquer un éventuel redémarrage de kubelet maintenant
+  ansible.builtin.meta: flush_handlers
+
 - name: Attendre que l'API Kubernetes soit prête
   ansible.builtin.command: /usr/bin/kubectl --kubeconfig {{ control_plane_admin_conf }} get --raw=/readyz
   register: control_plane_readyz

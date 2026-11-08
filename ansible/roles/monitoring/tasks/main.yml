@@ -1,0 +1,41 @@
+---
+- name: Créer le namespace monitoring
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ monitoring_namespace }}"
+
+# Le mot de passe vient du coffre ; no_log évite de l'afficher.
+- name: Créer le Secret du mot de passe administrateur Grafana
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ monitoring_grafana_secret }}"
+        namespace: "{{ monitoring_namespace }}"
+      type: Opaque
+      stringData:
+        admin-user: admin
+        admin-password: "{{ platform_grafana_admin_password }}"
+  no_log: true
+
+- name: Ajouter le dépôt Helm prometheus-community
+  kubernetes.core.helm_repository:
+    name: prometheus-community
+    repo_url: "{{ monitoring_repo_url }}"
+
+- name: Installer kube-prometheus-stack
+  kubernetes.core.helm:
+    name: "{{ monitoring_release }}"
+    chart_ref: prometheus-community/kube-prometheus-stack
+    chart_version: "{{ platform_kube_prometheus_stack_chart_version }}"
+    release_namespace: "{{ monitoring_namespace }}"
+    values: "{{ monitoring_values }}"
+    state: present
+    wait: true
+    wait_timeout: 10m

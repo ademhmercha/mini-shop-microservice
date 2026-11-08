@@ -31,3 +31,7 @@ apiServer:
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
 cgroupDriver: systemd
+# Certificat de service du kubelet signé par l'autorité du cluster (au lieu
+# d'un certificat auto-signé) : requis par metrics-server sans --kubelet-insecure-tls.
+# Les demandes (CSR) sont approuvées par le rôle metrics_server.
+serverTLSBootstrap: true

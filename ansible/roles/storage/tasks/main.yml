@@ -1,0 +1,32 @@
+---
+# Le manifeste officiel (version épinglée) est téléchargé puis adapté :
+# ressources du déploiement et classe de stockage par défaut.
+- name: Lire le manifeste officiel de local-path-provisioner
+  ansible.builtin.set_fact:
+    storage_documents: "{{ lookup('ansible.builtin.url', storage_manifest_url, split_lines=false) | from_yaml_all | select | list }}"
+
+# Le Deployment passe en dernier : il monte la ConfigMap, qui doit exister avant.
+- name: Ordonner les ressources (Deployment en dernier)
+  ansible.builtin.set_fact:
+    storage_documents: >-
+      {{ storage_documents | rejectattr('kind', 'eq', 'Deployment') | list
+         + storage_documents | selectattr('kind', 'eq', 'Deployment') | list }}
+
+- name: Appliquer local-path-provisioner
+  kubernetes.core.k8s:
+    state: present
+    apply: true
+    definition: >-
+      {%- if item.kind == 'StorageClass' -%}
+      {{ item | combine({'metadata': {'annotations': {'storageclass.kubernetes.io/is-default-class': 'true'}}}, recursive=true) }}
+      {%- elif item.kind == 'Deployment' -%}
+      {{ item | combine({'spec': {'template': {'spec': {'containers':
+         item.spec.template.spec.containers | map('combine', {'resources': storage_resources}) | list}}}}, recursive=true) }}
+      {%- else -%}
+      {{ item }}
+      {%- endif -%}
+    wait: "{{ item.kind == 'Deployment' }}"
+    wait_timeout: 180
+  loop: "{{ storage_documents }}"
+  loop_control:
+    label: "{{ item.kind }}/{{ item.metadata.name }}"

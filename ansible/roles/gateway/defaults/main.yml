@@ -1,0 +1,56 @@
+---
+gateway_crds_url: "https://github.com/kubernetes-sigs/gateway-api/releases/download/{{ platform_gateway_api_version }}/standard-install.yaml"
+gateway_traefik_repo_url: https://traefik.github.io/charts
+gateway_traefik_release: traefik
+gateway_class_name: traefik
+gateway_worker_node: "{{ platform_worker_host }}"
+gateway_traefik_values:
+  deployment:
+    replicas: 1
+  # Traefik doit tourner sur worker-1, la seule machine dont les ports 80 et
+  # 443 sont ouverts (et le plan de contrôle a un NoSchedule).
+  nodeSelector:
+    kubernetes.io/hostname: "{{ gateway_worker_node }}"
+  # hostPort plutôt que hostNetwork : le pod garde son réseau (DNS du
+  # cluster, isolation), ne s'approprie pas tous les ports de la machine
+  # (conflit avec node-exporter sur 9100) et tourne sans privilège. Le plugin
+  # portmap de Calico redirige 80/443 de la machine vers les ports 8000/8443
+  # du conteneur. Pas de LoadBalancer cloud : on expose donc directement.
+  ports:
+    web:
+      hostPort: 80
+    websecure:
+      hostPort: 443
+  service:
+    spec:
+      type: ClusterIP
+  # Avec hostPort, un second pod ne peut pas démarrer pendant la mise à jour.
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  providers:
+    kubernetesGateway:
+      enabled: true
+    kubernetesIngress:
+      enabled: false
+  # La GatewayClass et la Gateway sont gérées par ce rôle (ci-dessous).
+  gateway:
+    enabled: false
+  gatewayClass:
+    enabled: false
+  # Tableau de bord non exposé.
+  api:
+    dashboard: false
+    insecure: false
+  ingressRoute:
+    dashboard:
+      enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 300m
+      memory: 160Mi

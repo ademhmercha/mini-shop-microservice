@@ -1,0 +1,32 @@
+---
+- name: Plateforme du cluster (metrics, stockage, Gateway, certificats, monitoring)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  environment:
+    K8S_AUTH_KUBECONFIG: "{{ platform_kubeconfig }}"
+  pre_tasks:
+    - name: Vérifier la présence du kubeconfig
+      ansible.builtin.stat:
+        path: "{{ platform_kubeconfig }}"
+      register: platform_kubeconfig_stat
+
+    - name: Exiger le kubeconfig (voir playbooks/k8s.yml)
+      ansible.builtin.assert:
+        that: platform_kubeconfig_stat.stat.exists
+        fail_msg: "Kubeconfig introuvable : lancez d'abord playbooks/k8s.yml."
+        quiet: true
+  roles:
+    - role: metrics_server
+      tags: [metrics_server]
+    - role: storage
+      tags: [storage]
+    - role: gateway
+      tags: [gateway]
+    - role: cert_manager
+      tags: [cert_manager]
+    - role: monitoring
+      tags: [monitoring]
+    - role: hello
+      tags: [hello]

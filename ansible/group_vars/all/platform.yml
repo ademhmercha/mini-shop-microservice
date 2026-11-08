@@ -1,0 +1,32 @@
+---
+# Plateforme du cluster (phase 5A) : versions des charts, domaine, options.
+platform_kubeconfig: "{{ lookup('ansible.builtin.env', 'HOME') }}/.kube/shoplite.conf"
+platform_worker_host: "{{ groups['workers'][0] }}"
+
+# Domaine sslip.io construit depuis l'IP publique de worker-1 (inventaire
+# dynamique) : 20.215.53.8 devient 20-215-53-8.sslip.io. Jamais écrit en dur.
+platform_domain: "{{ hostvars[platform_worker_host]['ansible_host'] | replace('.', '-') }}.sslip.io"
+
+# Versions épinglées.
+platform_metrics_server_chart_version: "3.14.0"
+platform_local_path_version: "v0.0.37"
+platform_gateway_api_version: "v1.6.3"
+platform_traefik_chart_version: "42.3.1"
+platform_cert_manager_chart_version: "v1.21.3"
+platform_kube_prometheus_stack_chart_version: "93.1.0"
+
+# Gateway partagée (créée par le rôle gateway, utilisée par les applications).
+platform_gateway_namespace: traefik
+platform_gateway_name: shoplite
+platform_gateway_tls_secret: shoplite-tls
+
+# Émetteur du certificat : letsencrypt-staging, letsencrypt-production ou
+# selfsigned (repli si Let's Encrypt refuse le domaine sslip.io).
+platform_cert_issuer: letsencrypt-production
+
+# Secrets (valeurs dans vault.yml).
+platform_letsencrypt_email: "{{ vault_letsencrypt_email }}"
+platform_grafana_admin_password: "{{ vault_grafana_admin_password }}"
+
+# Page de test "hello" (mettre false pour la supprimer).
+platform_hello_enabled: true

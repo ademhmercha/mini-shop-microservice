@@ -1,2 +1,5 @@
 ---
-# Aucun handler pour ce rôle ; fichier conservé pour la structure standard.
+- name: Redémarrer kubelet (nœud de travail)
+  ansible.builtin.service:
+    name: kubelet
+    state: restarted

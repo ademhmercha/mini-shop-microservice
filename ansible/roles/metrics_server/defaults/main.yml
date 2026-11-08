@@ -1,0 +1,15 @@
+---
+metrics_server_namespace: metrics-server
+metrics_server_release: metrics-server
+metrics_server_repo_url: https://kubernetes-sigs.github.io/metrics-server/
+metrics_server_values:
+  replicas: 1
+  # Aucun argument --kubelet-insecure-tls : les certificats kubelet sont
+  # signés par l'autorité du cluster (serverTLSBootstrap + CSR approuvées).
+  resources:
+    requests:
+      cpu: 25m
+      memory: 40Mi
+    limits:
+      cpu: 100m
+      memory: 80Mi

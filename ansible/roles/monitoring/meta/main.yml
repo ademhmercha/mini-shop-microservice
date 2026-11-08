@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  author: shoplite
+  description: kube-prometheus-stack économe (Prometheus 24 h, Grafana via port-forward).
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+  galaxy_tags: []
+dependencies: []

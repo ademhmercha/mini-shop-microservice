@@ -1,0 +1,101 @@
+---
+monitoring_namespace: monitoring
+monitoring_release: kube-prometheus-stack
+monitoring_repo_url: https://prometheus-community.github.io/helm-charts
+monitoring_grafana_secret: grafana-admin
+monitoring_values:
+  # Pas d'Alertmanager : aucun destinataire d'alertes pour ce cluster d'étude.
+  alertmanager:
+    enabled: false
+  # Composants du plan de contrôle kubeadm écoutant seulement en local : on
+  # les désactive (et leurs règles) pour éviter de fausses alertes
+  # "TargetDown".
+  kubeEtcd:
+    enabled: false
+  kubeControllerManager:
+    enabled: false
+  kubeScheduler:
+    enabled: false
+  kubeProxy:
+    enabled: false
+  defaultRules:
+    rules:
+      etcd: false
+      kubeControllerManager: false
+      kubeSchedulerAlerting: false
+      kubeSchedulerRecording: false
+      kubeProxy: false
+  prometheus:
+    prometheusSpec:
+      replicas: 1
+      retention: 24h
+      # Pas de stockage persistant : volume emptyDir.
+      storageSpec: {}
+      # Découvrir ServiceMonitor, PodMonitor, règles et sondes de TOUS les
+      # namespaces (nécessaire pour l'application en phase 5B).
+      serviceMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelectorNilUsesHelmValues: false
+      ruleSelectorNilUsesHelmValues: false
+      probeSelectorNilUsesHelmValues: false
+      serviceMonitorNamespaceSelector: {}
+      podMonitorNamespaceSelector: {}
+      resources:
+        requests:
+          cpu: 100m
+          memory: 400Mi
+        limits:
+          cpu: 800m
+          memory: 800Mi
+  grafana:
+    enabled: true
+    replicas: 1
+    # Service interne seulement : accès par kubectl port-forward.
+    service:
+      type: ClusterIP
+    # Mot de passe lu dans un Secret Kubernetes (jamais dans les valeurs).
+    admin:
+      existingSecret: "{{ monitoring_grafana_secret }}"
+      userKey: admin-user
+      passwordKey: admin-password
+    defaultDashboardsTimezone: utc
+    persistence:
+      enabled: false
+    resources:
+      requests:
+        cpu: 50m
+        memory: 200Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    sidecar:
+      resources:
+        requests:
+          cpu: 5m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 192Mi
+  prometheusOperator:
+    resources:
+      requests:
+        cpu: 20m
+        memory: 48Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+  kube-state-metrics:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 96Mi
+  prometheus-node-exporter:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 100m
+        memory: 48Mi

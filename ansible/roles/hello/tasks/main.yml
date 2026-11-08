@@ -1,0 +1,107 @@
+---
+# platform_hello_enabled: false supprime la page de test.
+- name: Créer le namespace de la page de test
+  kubernetes.core.k8s:
+    state: "{{ 'present' if platform_hello_enabled | bool else 'absent' }}"
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ hello_namespace }}"
+
+- name: Déployer la page de test
+  when: platform_hello_enabled | bool
+  block:
+    - name: Créer le contenu de la page
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: hello-page
+            namespace: "{{ hello_namespace }}"
+          data:
+            index.html: |
+              <!doctype html>
+              <html lang="fr"><head><meta charset="utf-8"><title>Shoplite</title></head>
+              <body><h1>Plateforme Shoplite opérationnelle</h1>
+              <p>HTTPS de bout en bout via Traefik et cert-manager : {{ platform_domain }}</p></body></html>
+
+    - name: Déployer nginx
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: hello
+            namespace: "{{ hello_namespace }}"
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: hello
+            template:
+              metadata:
+                labels:
+                  app: hello
+              spec:
+                containers:
+                  - name: nginx
+                    image: "{{ hello_image }}"
+                    ports:
+                      - containerPort: 80
+                    resources:
+                      requests:
+                        cpu: 5m
+                        memory: 8Mi
+                      limits:
+                        cpu: 100m
+                        memory: 32Mi
+                    volumeMounts:
+                      - name: page
+                        mountPath: /usr/share/nginx/html
+                volumes:
+                  - name: page
+                    configMap:
+                      name: hello-page
+        wait: true
+        wait_timeout: 180
+
+    - name: Exposer le déploiement
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: hello
+            namespace: "{{ hello_namespace }}"
+          spec:
+            selector:
+              app: hello
+            ports:
+              - port: 80
+                targetPort: 80
+
+    - name: Router le domaine vers la page de test
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: HTTPRoute
+          metadata:
+            name: hello
+            namespace: "{{ hello_namespace }}"
+          spec:
+            parentRefs:
+              - name: "{{ platform_gateway_name }}"
+                namespace: "{{ platform_gateway_namespace }}"
+                sectionName: https
+            hostnames:
+              - "{{ platform_domain }}"
+            rules:
+              - backendRefs:
+                  - name: hello
+                    port: 80

@@ -1,0 +1,24 @@
+---
+- name: Lister les demandes de certificat (CSR)
+  kubernetes.core.k8s_info:
+    api_version: certificates.k8s.io/v1
+    kind: CertificateSigningRequest
+  register: metrics_server_csrs
+
+# On n'approuve que les certificats de service kubelet demandés par un nœud
+# connu de l'inventaire (system:node:<nom>) : jamais une CSR arbitraire.
+- name: Déterminer les CSR kubelet en attente
+  ansible.builtin.set_fact:
+    metrics_server_pending_csrs: >-
+      {{ metrics_server_csrs.resources
+         | selectattr('spec.signerName', 'eq', 'kubernetes.io/kubelet-serving')
+         | rejectattr('status.conditions', 'defined')
+         | selectattr('spec.username', 'in', metrics_server_node_users)
+         | map(attribute='metadata.name') | list }}
+  vars:
+    metrics_server_node_users: "{{ groups['k8s_cluster'] | map('regex_replace', '^', 'system:node:') | list }}"
+
+- name: Approuver les CSR kubelet en attente
+  ansible.builtin.command: /usr/bin/kubectl --kubeconfig {{ platform_kubeconfig }} certificate approve {{ item }}
+  loop: "{{ metrics_server_pending_csrs }}"
+  changed_when: true  # une approbation modifie le cluster

@@ -121,3 +121,78 @@ change, mettez à jour `allowed_cidrs` côté Terraform.
 Note : `playbooks/group_vars` est un lien symbolique vers `../group_vars`,
 car Ansible cherche les variables de groupe à côté de l'inventaire ou du
 playbook exécuté.
+## Plateforme du cluster (`playbooks/platform.yml`)
+
+Exécutée depuis le PC (`hosts: localhost`, `connection: local`) avec la
+collection `kubernetes.core` et `~/.kube/shoplite.conf`. Dépendances Python
+dans l'environnement pipx : `pipx runpip ansible install kubernetes jsonpatch`
+(le binaire `helm` doit aussi être installé).
+
+```bash
+ansible-playbook playbooks/platform.yml            # plateforme seule
+ansible-playbook playbooks/platform.yml --tags monitoring
+```
+
+| Composant | Rôle | Namespace | Version |
+|---|---|---|---|
+| metrics-server | `metrics_server` | `metrics-server` | chart 3.14.0 |
+| local-path-provisioner (StorageClass par défaut) | `storage` | `local-path-storage` | v0.0.37 |
+| CRD Gateway API (standard) | `gateway` | cluster | v1.6.3 |
+| Traefik (contrôleur Gateway API) | `gateway` | `traefik` | chart 42.3.1 |
+| cert-manager + ClusterIssuers | `cert_manager` | `cert-manager` | chart v1.21.3 |
+| kube-prometheus-stack | `monitoring` | `monitoring` | chart 93.1.0 |
+| Page de test | `hello` | `hello` | nginx 1.29 |
+
+Toutes les versions sont dans `group_vars/all/platform.yml`.
+
+- **metrics-server sans `--kubelet-insecure-tls`** : le kubelet signe son
+  certificat de service via l'autorité du cluster (`serverTLSBootstrap: true`,
+  posé par les rôles `control_plane` et `worker`). Le rôle approuve les CSR
+  `kubelet-serving` des seuls nœuds de l'inventaire. Les certificats se
+  renouvellent chaque année : relancer `platform.yml --tags metrics_server`
+  approuve les nouvelles demandes.
+- **Traefik** écoute en `hostPort` 80/443 sur worker-1 (pas de LoadBalancer).
+  `hostPort` plutôt que `hostNetwork` : le pod garde son réseau et ne prend pas
+  les ports de la machine (conflit avec node-exporter sur 9100). Le tableau de
+  bord n'est pas exposé. La Gateway `traefik/shoplite` a un écouteur HTTP, un
+  écouteur HTTPS et une redirection 301 vers HTTPS.
+- **Domaine** : `<ip-worker-1>.sslip.io` (points remplacés par des tirets), lu
+  dans l'inventaire dynamique, jamais en dur. Il change à chaque séance.
+- **Certificat** : `platform_cert_issuer` vaut `letsencrypt-staging`,
+  `letsencrypt-production` (défaut) ou `selfsigned` (repli si Let's Encrypt
+  refuse sslip.io). L'e-mail Let's Encrypt est `vault_letsencrypt_email`
+  (coffre), masqué par `no_log`.
+- **Page de test** : `platform_hello_enabled: false` puis relancer
+  `platform.yml --tags hello` la supprime.
+
+### Accéder à Grafana
+
+Grafana n'est pas exposé sur Internet :
+
+```bash
+export KUBECONFIG=~/.kube/shoplite.conf
+kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80
+# puis http://localhost:3000 ; utilisateur : admin
+cd ansible && ansible-vault view group_vars/all/vault.yml   # vault_grafana_admin_password
+```
+
+Prometheus : rétention 24 h, sans volume persistant (les données sont perdues
+au redémarrage du pod), Alertmanager et la surveillance etcd / scheduler /
+controller-manager / kube-proxy désactivés (fausses alertes sur kubeadm).
+Les ServiceMonitor de tous les namespaces sont découverts.
+
+### Consommation mémoire (worker-1, 4 Go)
+
+Mesuré le 2026-11-08, plateforme complète (page de test incluse) :
+
+- `free -m` sur worker-1 : 3906 Mo au total, **2229 Mo disponibles** (le cache
+  disque est récupérable). Objectif « au moins 1,5 Go pour l'application » tenu.
+- `kubectl top nodes` affiche 2455 Mi (64 %) pour worker-1 car il compte le cache.
+- Requêtes mémoire (`kubectl describe node worker-1`) : 1088 Mi sur 3807 Mi
+  allouables (28 %) ; limites : 2656 Mi (69 %).
+- Plus gros consommateurs : Grafana ~580 Mi (avec ses deux sidecars),
+  Prometheus ~250 Mi, cert-manager ~135 Mi (3 pods), Traefik ~40 Mi,
+  metrics-server ~37 Mi.
+- Pour gagner ~580 Mi en cas de besoin : `kubectl -n monitoring scale deploy
+  kube-prometheus-stack-grafana --replicas=0` (relancer `platform.yml` le
+  remet à 1).

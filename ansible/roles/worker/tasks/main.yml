@@ -28,6 +28,18 @@
         creates: "{{ worker_kubelet_conf }}"
       no_log: true
 
+# Nœuds déjà joints sans serverTLSBootstrap : mise à jour de la config locale.
+- name: Activer serverTLSBootstrap dans la configuration du kubelet
+  ansible.builtin.lineinfile:
+    path: /var/lib/kubelet/config.yaml
+    regexp: '^serverTLSBootstrap:'
+    line: "serverTLSBootstrap: true"
+    insertafter: '^cgroupDriver:'
+  notify: Redémarrer kubelet (nœud de travail)
+
+- name: Appliquer un éventuel redémarrage de kubelet maintenant
+  ansible.builtin.meta: flush_handlers
+
 - name: Attendre que le nœud soit Ready
   ansible.builtin.command: >-
     /usr/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf

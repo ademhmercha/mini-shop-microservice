@@ -10,3 +10,6 @@
 
 - name: Installation de Kubernetes
   ansible.builtin.import_playbook: k8s.yml
+
+- name: Plateforme du cluster
+  ansible.builtin.import_playbook: platform.yml
