@@ -1,0 +1,14 @@
+---
+k8s_prereqs_modules:
+  - overlay
+  - br_netfilter
+k8s_prereqs_modules_file: /etc/modules-load.d/k8s.conf
+k8s_prereqs_sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+k8s_prereqs_sysctl_params:
+  net.bridge.bridge-nf-call-iptables: 1
+  net.bridge.bridge-nf-call-ip6tables: 1
+k8s_prereqs_packages:
+  - socat
+  - conntrack
+  - ebtables
+  - ethtool

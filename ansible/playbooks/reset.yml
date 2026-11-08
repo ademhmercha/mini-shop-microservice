@@ -1,0 +1,72 @@
+---
+# Remise à zéro des nœuds : DESTRUCTIF (cluster, certificats, réseau des pods).
+# Confirmation obligatoire : tapez RESET, ou passez -e reset_confirm=RESET.
+- name: Remettre les nœuds Kubernetes à zéro
+  hosts: k8s_cluster
+  become: true
+  vars_prompt:
+    - name: reset_confirm
+      prompt: "Cette action détruit le cluster sur TOUS les nœuds. Tapez RESET pour confirmer"
+      private: false
+  tasks:
+    - name: Exiger la confirmation
+      ansible.builtin.assert:
+        that: reset_confirm == 'RESET'
+        fail_msg: "Confirmation absente ou incorrecte : rien n'a été modifié."
+        quiet: true
+      run_once: true
+
+    - name: Chercher un nœud initialisé ou joint
+      ansible.builtin.stat:
+        path: /etc/kubernetes
+      register: reset_k8s_dir
+
+    - name: Réinitialiser kubeadm
+      ansible.builtin.command: /usr/bin/kubeadm reset --force --cri-socket {{ k8s_cri_socket }}
+      when: reset_k8s_dir.stat.exists
+      register: reset_kubeadm
+      changed_when: reset_kubeadm.rc == 0
+
+    - name: Supprimer l'interface VXLAN de Calico
+      ansible.builtin.command: /usr/sbin/ip link delete vxlan.calico
+      register: reset_vxlan
+      changed_when: reset_vxlan.rc == 0
+      failed_when: reset_vxlan.rc != 0 and 'Cannot find device' not in reset_vxlan.stderr
+
+    - name: Vider les tables iptables et ip6tables
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - /usr/sbin/iptables -F
+        - /usr/sbin/iptables -t nat -F
+        - /usr/sbin/iptables -t mangle -F
+        - /usr/sbin/iptables -X
+        - /usr/sbin/ip6tables -F
+        - /usr/sbin/ip6tables -t nat -F
+        - /usr/sbin/ip6tables -t mangle -F
+        - /usr/sbin/ip6tables -X
+      changed_when: true  # nettoyage volontaire, toujours appliqué
+
+    - name: Supprimer les fichiers CNI, Calico et kubectl résiduels
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/cni/net.d
+        - /var/lib/cni
+        - /var/lib/calico
+        - /opt/shoplite/calico
+        - /etc/kubernetes
+        - /home/azureuser/.kube
+
+    - name: Redémarrer containerd
+      ansible.builtin.service:
+        name: containerd
+        state: restarted
+
+    - name: Supprimer le kubeconfig local devenu invalide
+      ansible.builtin.file:
+        path: "{{ lookup('ansible.builtin.env', 'HOME') }}/.kube/shoplite.conf"
+        state: absent
+      delegate_to: localhost
+      become: false
+      run_once: true

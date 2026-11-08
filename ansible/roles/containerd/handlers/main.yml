@@ -1,0 +1,9 @@
+---
+- name: Mettre à jour le cache apt (dépôt containerd)
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Redémarrer containerd
+  ansible.builtin.service:
+    name: containerd
+    state: restarted

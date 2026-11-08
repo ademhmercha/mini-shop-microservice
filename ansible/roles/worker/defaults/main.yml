@@ -1,0 +1,4 @@
+---
+worker_kubelet_conf: /etc/kubernetes/kubelet.conf
+worker_token_ttl: 10m
+worker_control_plane_host: "{{ groups['control_plane'][0] }}"

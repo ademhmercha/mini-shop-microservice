@@ -1,0 +1,22 @@
+---
+# Versions et réseau du cluster : source unique (la mise à jour 1.36 vers 1.37
+# de la phase 6 se fera ici).
+
+# Kubernetes : dernier correctif de la branche 1.36 (ne PAS passer en 1.37 ici).
+k8s_branch: "v1.36"
+k8s_version: "1.36.6"
+# Version exacte des paquets deb (kubelet, kubeadm, kubectl).
+k8s_apt_version: "1.36.6-1.1"
+
+# containerd (paquet containerd.io du dépôt Docker, version exacte).
+k8s_containerd_apt_version: "2.4.2-3~ubuntu.24.04~noble"
+
+# Calico (opérateur Tigera).
+k8s_calico_version: "v3.32.3"
+
+# Réseau : aucun chevauchement avec le réseau Azure 10.10.0.0/16.
+k8s_cluster_name: shoplite
+k8s_pod_cidr: "192.168.0.0/16"
+k8s_service_cidr: "10.96.0.0/12"
+k8s_api_port: 6443
+k8s_cri_socket: "unix:///run/containerd/containerd.sock"

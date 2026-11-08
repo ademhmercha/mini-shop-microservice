@@ -35,3 +35,10 @@ crash.log
 ansible/.ansible/
 *.retry
 .vault_pass
+
+# Kubernetes : accès administrateur, ne jamais commiter
+kubeconfig*
+*.kubeconfig
+admin.conf
+shoplite.conf
+.kube/

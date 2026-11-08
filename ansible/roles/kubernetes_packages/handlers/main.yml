@@ -1,0 +1,4 @@
+---
+- name: Mettre à jour le cache apt (dépôt Kubernetes)
+  ansible.builtin.apt:
+    update_cache: true

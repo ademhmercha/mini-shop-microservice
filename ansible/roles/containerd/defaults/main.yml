@@ -1,0 +1,6 @@
+---
+containerd_package: containerd.io
+containerd_repo_url: https://download.docker.com/linux/ubuntu
+containerd_repo_key_url: https://download.docker.com/linux/ubuntu/gpg
+containerd_config_file: /etc/containerd/config.toml
+containerd_crictl_file: /etc/crictl.yaml

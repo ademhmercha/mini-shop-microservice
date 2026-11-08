@@ -1,0 +1,40 @@
+---
+- name: Prérequis, paquets Kubernetes et containerd sur tous les nœuds
+  hosts: k8s_cluster
+  become: true
+  roles:
+    - role: k8s_prereqs
+      tags: [k8s_prereqs]
+    # kubeadm doit être installé avant containerd (lecture de l'image pause).
+    - role: kubernetes_packages
+      tags: [kubernetes_packages]
+    - role: containerd
+      tags: [containerd]
+
+- name: Initialisation du plan de contrôle
+  hosts: control_plane
+  become: true
+  roles:
+    - role: control_plane
+      tags: [control_plane]
+
+- name: Réseau des pods (Calico)
+  hosts: control_plane
+  become: true
+  roles:
+    - role: cni_calico
+      tags: [cni_calico]
+
+- name: Adhésion des nœuds de travail
+  hosts: workers
+  become: true
+  roles:
+    - role: worker
+      tags: [worker]
+
+- name: Récupération du kubeconfig sur le poste local
+  hosts: control_plane
+  become: true
+  roles:
+    - role: kubeconfig
+      tags: [kubeconfig]

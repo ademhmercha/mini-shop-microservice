@@ -1,0 +1,33 @@
+# {{ ansible_managed }}
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: {{ control_plane_private_ip }}
+  bindPort: {{ k8s_api_port }}
+nodeRegistration:
+  name: {{ inventory_hostname }}
+  criSocket: {{ k8s_cri_socket }}
+  kubeletExtraArgs:
+    - name: node-ip
+      value: "{{ control_plane_private_ip }}"
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+clusterName: {{ k8s_cluster_name }}
+kubernetesVersion: v{{ k8s_version }}
+controlPlaneEndpoint: "{{ control_plane_private_ip }}:{{ k8s_api_port }}"
+networking:
+  podSubnet: {{ k8s_pod_cidr }}
+  serviceSubnet: {{ k8s_service_cidr }}
+  dnsDomain: cluster.local
+apiServer:
+  # Noms/IP présents dans le certificat de l'API : indispensable pour utiliser
+  # kubectl depuis le PC via l'IP publique.
+  certSANs:
+{% for san in control_plane_cert_sans %}
+    - "{{ san }}"
+{% endfor %}
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd

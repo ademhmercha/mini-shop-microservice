@@ -7,3 +7,6 @@
       tags: [common]
     - role: hardening
       tags: [hardening]
+
+- name: Installation de Kubernetes
+  ansible.builtin.import_playbook: k8s.yml

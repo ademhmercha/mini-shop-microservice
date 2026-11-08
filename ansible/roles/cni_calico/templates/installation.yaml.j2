@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+apiVersion: operator.tigera.io/v1
+kind: Installation
+metadata:
+  name: default
+spec:
+  calicoNetwork:
+    # BGP désactivé : pas de pairs BGP dans Azure, tout passe par VXLAN.
+    bgp: Disabled
+    ipPools:
+      - name: default-ipv4-ippool
+        cidr: {{ k8s_pod_cidr }}
+        # VXLAN et non IP-in-IP : Azure bloque le protocole IP 4 (IP-in-IP)
+        # entre machines virtuelles. VXLAN encapsule dans de l'UDP (4789),
+        # autorisé par la règle interne du NSG.
+        encapsulation: VXLAN
+        natOutgoing: Enabled
+        nodeSelector: all()

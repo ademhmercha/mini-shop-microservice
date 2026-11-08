@@ -76,3 +76,48 @@ le coffre est illisible.
   redémarrage automatique, sysctl compatibles Kubernetes/Calico. Pas d'UFW :
   le NSG Azure filtre et les règles iptables de Kubernetes/Calico y seraient
   en conflit.
+## Kubernetes (kubeadm)
+
+Versions (toutes dans `group_vars/all/kubernetes.yml`) : Kubernetes 1.36.6
+(paquets `1.36.6-1.1`, bloqués par `apt-mark hold`), containerd.io 2.4.2,
+Calico v3.32.3 (opérateur Tigera, VXLAN, BGP désactivé). Réseau : pods
+`192.168.0.0/16`, services `10.96.0.0/12`.
+
+```bash
+ansible-playbook playbooks/site.yml    # tout : common, hardening, Kubernetes
+ansible-playbook playbooks/k8s.yml     # Kubernetes seul
+export KUBECONFIG=~/.kube/shoplite.conf
+kubectl get nodes -o wide
+```
+
+Ordre de `k8s.yml` : `k8s_prereqs`, `kubernetes_packages`, `containerd`
+(tous les nœuds) puis `control_plane`, `cni_calico`, `worker`, `kubeconfig`.
+`kubernetes_packages` précède `containerd` car l'image pause est lue auprès
+de `kubeadm`. Les rôles sont idempotents : `kubeadm init` / `join` ne sont pas
+relancés si `/etc/kubernetes/admin.conf` / `kubelet.conf` existent.
+
+`net.ipv4.ip_forward` et `rp_filter` restent gérés par `hardening` ;
+`k8s_prereqs` ne fait que vérifier leur cohérence (pas de doublon).
+
+### Remise à zéro
+
+```bash
+ansible-playbook playbooks/reset.yml   # demande de taper RESET
+ansible-playbook playbooks/reset.yml -e reset_confirm=RESET   # sans question
+```
+
+Détruit le cluster sur tous les nœuds (kubeadm reset, CNI, iptables) et
+supprime le kubeconfig local ; relancez ensuite `k8s.yml`.
+
+### Kubeconfig : accès administrateur complet
+
+`~/.kube/shoplite.conf` (permissions 600) est une copie de `admin.conf` avec
+l'IP publique de `cp-1`. Il donne les **droits d'administrateur complets** sur
+le cluster : ne le partagez pas, ne le commitez jamais (il est hors du dépôt
+et le `.gitignore` bloque aussi `kubeconfig*`, `admin.conf`, `shoplite.conf`).
+Le port 6443 n'est joignable que depuis votre IP publique (NSG) ; si elle
+change, mettez à jour `allowed_cidrs` côté Terraform.
+
+Note : `playbooks/group_vars` est un lien symbolique vers `../group_vars`,
+car Ansible cherche les variables de groupe à côté de l'inventaire ou du
+playbook exécuté.

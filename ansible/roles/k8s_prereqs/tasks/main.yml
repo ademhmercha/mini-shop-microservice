@@ -1,0 +1,57 @@
+---
+- name: Installer les paquets requis par kubelet et kube-proxy
+  ansible.builtin.apt:
+    name: "{{ k8s_prereqs_packages }}"
+    state: present
+
+- name: Rendre les modules noyau persistants au démarrage
+  ansible.builtin.copy:
+    dest: "{{ k8s_prereqs_modules_file }}"
+    content: "{{ k8s_prereqs_modules | join('\n') }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Charger les modules noyau maintenant
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ k8s_prereqs_modules }}"
+
+# Les sysctl bridge n'existent qu'une fois br_netfilter chargé (tâche ci-dessus).
+- name: Activer le filtrage iptables sur les ponts réseau
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: "{{ k8s_prereqs_sysctl_file }}"
+    sysctl_set: true
+    state: present
+    reload: true
+  loop: "{{ k8s_prereqs_sysctl_params | dict2items }}"
+
+# net.ipv4.ip_forward et rp_filter sont déjà gérés par le rôle hardening
+# (/etc/sysctl.d/99-shoplite-hardening.conf) : on ne les redéfinit pas ici
+# pour éviter un doublon. On vérifie seulement que les valeurs sont bonnes.
+- name: Lire le transfert IP et le filtrage de chemin inverse
+  ansible.builtin.command: /usr/sbin/sysctl -n net.ipv4.ip_forward net.ipv4.conf.all.rp_filter
+  register: k8s_prereqs_net_state
+  changed_when: false  # lecture seule
+
+- name: Vérifier la cohérence avec le rôle hardening
+  ansible.builtin.assert:
+    that:
+      - k8s_prereqs_net_state.stdout_lines[0] == '1'
+      - k8s_prereqs_net_state.stdout_lines[1] in ['0', '2']
+    fail_msg: "ip_forward doit valoir 1 et rp_filter ne doit pas être strict : appliquez d'abord le rôle hardening."
+    quiet: true
+
+- name: Retirer les entrées swap de /etc/fstab (désactivation persistante)
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#\s]\S*\s+\S+\s+swap\s+.*)$'
+    replace: '# \1'
+
+- name: Désactiver le swap actif
+  ansible.builtin.command: /usr/sbin/swapoff -a
+  when: ansible_facts['swaptotal_mb'] | int > 0
+  changed_when: true  # exécutée seulement si du swap est actif

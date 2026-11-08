@@ -1,0 +1,38 @@
+---
+- name: Installer python3-debian (requis par le module de dépôt deb822)
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+
+# Dépôt signé : la clé est téléchargée et associée à ce seul dépôt (signed-by).
+- name: Déclarer le dépôt Kubernetes officiel
+  ansible.builtin.deb822_repository:
+    name: kubernetes
+    types: [deb]
+    uris: "{{ kubernetes_packages_repo_url }}"
+    suites: "/"
+    signed_by: "{{ kubernetes_packages_repo_key_url }}"
+    state: present
+  notify: Mettre à jour le cache apt (dépôt Kubernetes)
+
+- name: Appliquer la mise à jour du cache apt maintenant
+  ansible.builtin.meta: flush_handlers
+
+- name: Installer kubelet, kubeadm et kubectl à la version épinglée
+  ansible.builtin.apt:
+    name: "{{ kubernetes_packages_names | map('regex_replace', '$', '=' ~ k8s_apt_version) | list }}"
+    state: present
+    allow_change_held_packages: true
+
+- name: Bloquer les versions des paquets Kubernetes (apt-mark hold)
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: "{{ kubernetes_packages_names }}"
+
+# kubelet redémarre en boucle tant que kubeadm n'a pas fourni sa configuration :
+# on l'active (démarrage au boot) sans forcer son démarrage.
+- name: Activer le service kubelet
+  ansible.builtin.service:
+    name: kubelet
+    enabled: true

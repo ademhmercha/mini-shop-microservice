@@ -1,0 +1,47 @@
+---
+- name: Chercher un cluster déjà initialisé
+  ansible.builtin.stat:
+    path: "{{ control_plane_admin_conf }}"
+  register: control_plane_admin_stat
+
+- name: Générer la configuration kubeadm
+  ansible.builtin.template:
+    src: kubeadm-config.yaml.j2
+    dest: "{{ control_plane_config_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+# --skip-token-print : la commande d'adhésion (avec jeton) n'est jamais
+# affichée ; elle sera régénérée à la demande par le rôle worker.
+- name: Initialiser le plan de contrôle (kubeadm init)
+  ansible.builtin.command:
+    cmd: /usr/bin/kubeadm init --config {{ control_plane_config_file }} --skip-token-print
+    creates: "{{ control_plane_admin_conf }}"
+  register: control_plane_init
+  failed_when: control_plane_init.rc != 0
+
+- name: Créer le dossier .kube de l'utilisateur
+  ansible.builtin.file:
+    path: "/home/{{ control_plane_user }}/.kube"
+    state: directory
+    owner: "{{ control_plane_user }}"
+    group: "{{ control_plane_user }}"
+    mode: "0700"
+
+- name: Configurer kubectl pour l'utilisateur sur le plan de contrôle
+  ansible.builtin.copy:
+    src: "{{ control_plane_admin_conf }}"
+    dest: "/home/{{ control_plane_user }}/.kube/config"
+    remote_src: true
+    owner: "{{ control_plane_user }}"
+    group: "{{ control_plane_user }}"
+    mode: "0600"
+
+- name: Attendre que l'API Kubernetes soit prête
+  ansible.builtin.command: /usr/bin/kubectl --kubeconfig {{ control_plane_admin_conf }} get --raw=/readyz
+  register: control_plane_readyz
+  until: control_plane_readyz.rc == 0
+  retries: 30
+  delay: 5
+  changed_when: false  # lecture seule

@@ -1,0 +1,36 @@
+---
+- name: Chercher un nœud déjà membre du cluster
+  ansible.builtin.stat:
+    path: "{{ worker_kubelet_conf }}"
+  register: worker_kubelet_stat
+
+- name: Adhérer au cluster
+  when: not worker_kubelet_stat.stat.exists
+  block:
+    # Jeton à courte durée de vie, généré sur le plan de contrôle. Il n'est
+    # ni écrit sur disque ni affiché (no_log) ; le pipelining SSH évite aussi
+    # qu'il transite par un fichier temporaire.
+    - name: Générer une commande d'adhésion sur le plan de contrôle
+      ansible.builtin.command: /usr/bin/kubeadm token create --ttl {{ worker_token_ttl }} --print-join-command
+      delegate_to: "{{ worker_control_plane_host }}"
+      register: worker_join_raw
+      changed_when: true  # crée un jeton temporaire
+      no_log: true
+
+    - name: Mémoriser la commande d'adhésion (en mémoire uniquement)
+      ansible.builtin.set_fact:
+        worker_join_command: "{{ worker_join_raw.stdout | trim }}"
+      no_log: true
+
+    - name: Rejoindre le cluster (kubeadm join)
+      ansible.builtin.command:
+        cmd: "{{ worker_join_command }} --node-name {{ inventory_hostname }}"
+        creates: "{{ worker_kubelet_conf }}"
+      no_log: true
+
+- name: Attendre que le nœud soit Ready
+  ansible.builtin.command: >-
+    /usr/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf
+    wait --for=condition=Ready node/{{ inventory_hostname }} --timeout=300s
+  delegate_to: "{{ worker_control_plane_host }}"
+  changed_when: false  # lecture seule

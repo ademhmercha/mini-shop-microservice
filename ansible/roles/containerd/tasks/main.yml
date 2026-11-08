@@ -1,0 +1,71 @@
+---
+- name: Installer python3-debian (requis par le module de dépôt deb822)
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+
+- name: Déclarer le dépôt apt de containerd (signé)
+  ansible.builtin.deb822_repository:
+    name: containerd
+    types: [deb]
+    uris: "{{ containerd_repo_url }}"
+    suites: "{{ ansible_facts['distribution_release'] }}"
+    components: [stable]
+    architectures: [amd64]
+    signed_by: "{{ containerd_repo_key_url }}"
+    state: present
+  notify: Mettre à jour le cache apt (dépôt containerd)
+
+- name: Appliquer la mise à jour du cache apt maintenant
+  ansible.builtin.meta: flush_handlers
+
+- name: Installer containerd à la version épinglée
+  ansible.builtin.apt:
+    name: "{{ containerd_package }}={{ k8s_containerd_apt_version }}"
+    state: present
+    allow_change_held_packages: true
+
+- name: Bloquer la version de containerd (apt-mark hold)
+  ansible.builtin.dpkg_selections:
+    name: "{{ containerd_package }}"
+    selection: hold
+
+# L'image pause doit correspondre à celle que kubeadm attend, sinon kubeadm
+# signale un écart. On la lit auprès de kubeadm (aucun accès réseau : la
+# version est fournie explicitement).
+- name: Lire la liste des images attendues par kubeadm
+  ansible.builtin.command: /usr/bin/kubeadm config images list --kubernetes-version v{{ k8s_version }}
+  register: containerd_kubeadm_images
+  changed_when: false  # lecture seule
+
+- name: Déterminer l'image pause
+  ansible.builtin.set_fact:
+    containerd_pause_image: "{{ containerd_kubeadm_images.stdout_lines | select('search', '/pause:') | first }}"
+
+- name: Installer la configuration de containerd (SystemdCgroup = true)
+  ansible.builtin.template:
+    src: config.toml.j2
+    dest: "{{ containerd_config_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Redémarrer containerd
+
+- name: Configurer crictl pour parler à containerd
+  ansible.builtin.copy:
+    dest: "{{ containerd_crictl_file }}"
+    content: |
+      runtime-endpoint: {{ k8s_cri_socket }}
+      image-endpoint: {{ k8s_cri_socket }}
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Activer et démarrer containerd
+  ansible.builtin.service:
+    name: containerd
+    state: started
+    enabled: true
+
+- name: Appliquer un éventuel redémarrage de containerd maintenant
+  ansible.builtin.meta: flush_handlers

@@ -1,0 +1,7 @@
+---
+kubernetes_packages_names:
+  - kubelet
+  - kubeadm
+  - kubectl
+kubernetes_packages_repo_url: "https://pkgs.k8s.io/core:/stable:/{{ k8s_branch }}/deb/"
+kubernetes_packages_repo_key_url: "https://pkgs.k8s.io/core:/stable:/{{ k8s_branch }}/deb/Release.key"

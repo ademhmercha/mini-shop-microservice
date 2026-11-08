@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+# Configuration minimale de containerd 2.x (format version 3) ; les autres
+# réglages gardent leurs valeurs par défaut.
+version = 3
+
+[plugins.'io.containerd.cri.v1.images'.pinned_images]
+  # Image pause alignée sur la version de kubeadm.
+  sandbox = '{{ containerd_pause_image }}'
+
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc]
+  runtime_type = 'io.containerd.runc.v2'
+
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
+  # Obligatoire : le kubelet utilise le pilote cgroup systemd.
+  SystemdCgroup = true

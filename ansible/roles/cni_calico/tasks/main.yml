@@ -1,0 +1,85 @@
+---
+- name: Créer le dossier des manifestes Calico
+  ansible.builtin.file:
+    path: "{{ cni_calico_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Télécharger le manifeste de l'opérateur Tigera (version épinglée)
+  ansible.builtin.get_url:
+    url: "{{ cni_calico_operator_url }}"
+    dest: "{{ cni_calico_dir }}/tigera-operator-{{ k8s_calico_version }}.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Générer la ressource Installation de Calico
+  ansible.builtin.template:
+    src: installation.yaml.j2
+    dest: "{{ cni_calico_installation_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+# `kubectl create` (et non apply) : les CRD de Calico dépassent la limite
+# d'annotation de `kubectl apply` client. On ne crée que si absent, ce qui
+# garde le rôle idempotent.
+- name: Chercher l'opérateur Tigera déjà installé
+  ansible.builtin.command: >-
+    /usr/bin/kubectl --kubeconfig {{ cni_calico_kubeconfig }}
+    get deployment tigera-operator -n tigera-operator
+  register: cni_calico_operator_check
+  changed_when: false  # lecture seule
+  failed_when: false  # l'absence est un cas normal (rc != 0)
+
+- name: Installer l'opérateur Tigera
+  ansible.builtin.command: >-
+    /usr/bin/kubectl --kubeconfig {{ cni_calico_kubeconfig }}
+    create -f {{ cni_calico_dir }}/tigera-operator-{{ k8s_calico_version }}.yaml
+  when: cni_calico_operator_check.rc != 0
+  register: cni_calico_operator_create
+  changed_when: cni_calico_operator_create.rc == 0
+
+- name: Attendre que la CRD Installation soit établie
+  ansible.builtin.command: >-
+    /usr/bin/kubectl --kubeconfig {{ cni_calico_kubeconfig }}
+    wait --for=condition=Established crd/installations.operator.tigera.io --timeout=60s
+  register: cni_calico_crd
+  until: cni_calico_crd.rc == 0
+  retries: 20
+  delay: 6
+  changed_when: false  # lecture seule (l'opérateur crée lui-même la CRD au démarrage)
+
+- name: Chercher la ressource Installation existante
+  ansible.builtin.command: >-
+    /usr/bin/kubectl --kubeconfig {{ cni_calico_kubeconfig }}
+    get installation default
+  register: cni_calico_installation_check
+  changed_when: false  # lecture seule
+  failed_when: false  # l'absence est un cas normal (rc != 0)
+
+- name: Créer la ressource Installation (VXLAN, pool de pods)
+  ansible.builtin.command: >-
+    /usr/bin/kubectl --kubeconfig {{ cni_calico_kubeconfig }}
+    create -f {{ cni_calico_installation_file }}
+  when: cni_calico_installation_check.rc != 0
+  register: cni_calico_installation_create
+  changed_when: cni_calico_installation_create.rc == 0
+
+- name: Attendre que Calico soit disponible
+  ansible.builtin.command: >-
+    /usr/bin/kubectl --kubeconfig {{ cni_calico_kubeconfig }}
+    wait --for=condition=Available tigerastatus/calico --timeout=60s
+  register: cni_calico_ready
+  until: cni_calico_ready.rc == 0
+  retries: 15
+  delay: 10
+  changed_when: false  # lecture seule
+
+- name: Attendre que le plan de contrôle soit Ready
+  ansible.builtin.command: >-
+    /usr/bin/kubectl --kubeconfig {{ cni_calico_kubeconfig }}
+    wait --for=condition=Ready node/{{ inventory_hostname }} --timeout=300s
+  changed_when: false  # lecture seule
