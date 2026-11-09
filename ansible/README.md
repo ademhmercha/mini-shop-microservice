@@ -196,3 +196,36 @@ Mesuré le 2026-11-08, plateforme complète (page de test incluse) :
 - Pour gagner ~580 Mi en cas de besoin : `kubectl -n monitoring scale deploy
   kube-prometheus-stack-grafana --replicas=0` (relancer `platform.yml` le
   remet à 1).
+## Application ShopLite (`playbooks/app.yml`)
+
+Rôle `shoplite` : crée le namespace `shoplite` (Pod Security `restricted` en enforce, audit et warn), les
+Secrets Kubernetes depuis le coffre (`no_log`), installe `charts/shoplite-data` (PostgreSQL, Redis, Mailpit),
+attend PostgreSQL et Redis, puis installe `charts/shoplite` avec `atomic` et `wait`. Les migrations et le
+compte de démonstration sont des hooks Helm (voir `charts/shoplite/README.md`). La page de test « hello »
+est désactivée (`platform_hello_enabled: false`) : `platform.yml` supprime son namespace.
+
+```bash
+scripts/build-push.sh                 # images ghcr.io/ademhmercha/shoplite-<service>:<commit court>
+ansible-playbook playbooks/app.yml    # tag = commit Git court par défaut
+ansible-playbook playbooks/app.yml -e shoplite_image_tag=<tag>   # autre tag
+```
+
+### Secrets de l'application
+
+`scripts/gen-vault-secrets.sh` ajoute au coffre les secrets manquants, sans jamais afficher leurs valeurs ni
+modifier ceux qui existent déjà : mots de passe PostgreSQL (propriétaire et applicatif par service) et Redis
+(`openssl rand -hex 24`), clé AES-256 TOTP (`openssl rand -base64 32`), jeton des appels internes, mot de passe
+du compte de démonstration, et clé privée de signature des jetons (`openssl genpkey -algorithm ED25519`,
+identifiant `key-1`). Le coffre est déchiffré en mémoire (`/dev/shm`), complété, rechiffré, puis le fichier
+temporaire est effacé. Ne régénérez jamais ces valeurs après le premier déploiement : les mots de passe sont
+déjà inscrits dans PostgreSQL (le script d'initialisation ne s'exécute qu'une fois).
+
+Notes : `kubernetes.core.helm` ne détecte pas une modification des *templates* d'un chart local sans changement
+de `version` dans `Chart.yaml` ni de valeurs : incrémentez la version du chart en le modifiant.
+Mot de passe du compte de démonstration (`demo@maison-argile.test`) : `ansible-vault view group_vars/all/vault.yml`.
+
+### Rendre les paquets ghcr.io publics
+
+Le cluster tire les images sans identifiants : après la première publication, pour chacun des 5 paquets
+(`shoplite-frontend`, `-auth`, `-catalog`, `-cart`, `-orders`) : GitHub → profil → *Packages* → le paquet →
+*Package settings* → *Danger Zone* → *Change visibility* → *Public* (taper le nom du paquet pour confirmer).

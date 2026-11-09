@@ -13,3 +13,6 @@
 
 - name: Plateforme du cluster
   ansible.builtin.import_playbook: platform.yml
+
+- name: Application ShopLite
+  ansible.builtin.import_playbook: app.yml

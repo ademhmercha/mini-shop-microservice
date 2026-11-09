@@ -1,7 +1,17 @@
 ---
-- name: Lire les CRD Gateway API (version standard épinglée)
+- name: Télécharger les CRD Gateway API (version standard épinglée)
+  ansible.builtin.uri:
+    url: "{{ gateway_crds_url }}"
+    return_content: true
+  register: gateway_crds_download
+  until: gateway_crds_download.status == 200
+  retries: 6
+  delay: 10
+  changed_when: false  # lecture seule
+
+- name: Lire les CRD Gateway API
   ansible.builtin.set_fact:
-    gateway_crd_documents: "{{ lookup('ansible.builtin.url', gateway_crds_url, split_lines=false) | from_yaml_all | select | list }}"
+    gateway_crd_documents: "{{ gateway_crds_download.content | from_yaml_all | select | list }}"
 
 # Application côté serveur : les CRD Gateway API dépassent la taille maximale
 # de l'annotation utilisée par l'apply classique.

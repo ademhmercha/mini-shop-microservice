@@ -1,0 +1,14 @@
+{{- if .Values.dashboard.enabled }}
+# Tableau de bord Grafana "ShopLite" : chargé par le sidecar de Grafana grâce à l'étiquette grafana_dashboard.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shoplite-dashboard
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/name: shoplite-dashboard
+    {{- include "shoplite.labels" . | nindent 4 }}
+data:
+  shoplite.json: |-
+{{ .Files.Get "files/dashboard.json" | indent 4 }}
+{{- end }}

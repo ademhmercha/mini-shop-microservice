@@ -1,0 +1,53 @@
+---
+shoplite_charts_dir: "{{ playbook_dir }}/../../charts"
+shoplite_data_release: shoplite-data
+shoplite_app_release: shoplite
+shoplite_wait_timeout: 10m
+shoplite_pg_host: postgres
+shoplite_redis_host: redis
+
+# Secrets Kubernetes créés depuis le coffre. Les noms correspondent aux valeurs `secrets.*` du chart shoplite
+# et à `existingSecret` du chart shoplite-data.
+shoplite_secret_definitions:
+  - name: postgres-credentials
+    data:
+      POSTGRES_PASSWORD: "{{ shoplite_postgres_password }}"
+      AUTH_DB_OWNER_PASSWORD: "{{ shoplite_auth_db_owner_password }}"
+      AUTH_DB_APP_PASSWORD: "{{ shoplite_auth_db_app_password }}"
+      CATALOG_DB_OWNER_PASSWORD: "{{ shoplite_catalog_db_owner_password }}"
+      CATALOG_DB_APP_PASSWORD: "{{ shoplite_catalog_db_app_password }}"
+      ORDERS_DB_OWNER_PASSWORD: "{{ shoplite_orders_db_owner_password }}"
+      ORDERS_DB_APP_PASSWORD: "{{ shoplite_orders_db_app_password }}"
+  - name: redis-credentials
+    data:
+      REDIS_PASSWORD: "{{ shoplite_redis_password }}"
+  - name: shoplite-auth
+    data:
+      DATABASE_URL: "postgres://auth_app:{{ shoplite_auth_db_app_password }}@{{ shoplite_pg_host }}:5432/auth_db"
+      REDIS_URL: "redis://:{{ shoplite_redis_password }}@{{ shoplite_redis_host }}:6379/0"
+      TOTP_ENCRYPTION_KEY: "{{ shoplite_totp_encryption_key }}"
+      INTERNAL_API_TOKEN: "{{ shoplite_internal_api_token }}"
+      jwt-private.pem: "{{ shoplite_jwt_private_key }}"
+  - name: shoplite-auth-migrate
+    data:
+      MIGRATION_DATABASE_URL: "postgres://auth_owner:{{ shoplite_auth_db_owner_password }}@{{ shoplite_pg_host }}:5432/auth_db"
+  - name: shoplite-catalog
+    data:
+      DATABASE_URL: "postgres://catalog_app:{{ shoplite_catalog_db_app_password }}@{{ shoplite_pg_host }}:5432/catalog_db"
+  - name: shoplite-catalog-migrate
+    data:
+      MIGRATION_DATABASE_URL: "postgres://catalog_owner:{{ shoplite_catalog_db_owner_password }}@{{ shoplite_pg_host }}:5432/catalog_db"
+  - name: shoplite-cart
+    data:
+      REDIS_URL: "redis://:{{ shoplite_redis_password }}@{{ shoplite_redis_host }}:6379/1"
+      INTERNAL_API_TOKEN: "{{ shoplite_internal_api_token }}"
+  - name: shoplite-orders
+    data:
+      DATABASE_URL: "postgres://orders_app:{{ shoplite_orders_db_app_password }}@{{ shoplite_pg_host }}:5432/orders_db"
+      INTERNAL_API_TOKEN: "{{ shoplite_internal_api_token }}"
+  - name: shoplite-orders-migrate
+    data:
+      MIGRATION_DATABASE_URL: "postgres://orders_owner:{{ shoplite_orders_db_owner_password }}@{{ shoplite_pg_host }}:5432/orders_db"
+  - name: shoplite-demo
+    data:
+      DEMO_PASSWORD: "{{ shoplite_demo_password }}"

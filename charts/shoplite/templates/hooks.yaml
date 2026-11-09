@@ -1,0 +1,98 @@
+{{- $root := . }}
+{{- /* Migrations : une base par service, exécutées avec le rôle propriétaire du schéma. */}}
+{{- range .Values.migrations }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate-{{ .service }}
+  labels:
+    app.kubernetes.io/name: migrate-{{ .service }}
+    {{- include "shoplite.labels" $root | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": {{ .weight | quote }}
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 4
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: migrate-{{ .service }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "shoplite.podSecurity" (dict "runAsUser" 1000) | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "shoplite.image" (dict "root" $root "service" .service) }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          command: ["node", "src/migrate.js"]
+          env:
+            - name: MIGRATION_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ index $root.Values.secrets .secret }}
+                  key: MIGRATION_DATABASE_URL
+          securityContext:
+            {{- include "shoplite.containerSecurity" $root | nindent 12 }}
+          resources:
+            {{- toYaml $root.Values.jobResources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+{{- end }}
+{{- if .Values.seed.enabled }}
+---
+# Compte de démonstration (après la migration du service auth).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-demo-account
+  labels:
+    app.kubernetes.io/name: seed-demo-account
+    {{- include "shoplite.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": {{ .Values.seedWeight | quote }}
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 4
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: seed-demo-account
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "shoplite.podSecurity" (dict "runAsUser" 1000) | nindent 8 }}
+      containers:
+        - name: seed
+          image: {{ include "shoplite.image" (dict "root" . "service" "auth") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["node", "src/seed.js"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.auth }}
+                  key: DATABASE_URL
+            - name: DEMO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.demo }}
+                  key: DEMO_PASSWORD
+          securityContext:
+            {{- include "shoplite.containerSecurity" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.jobResources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+{{- end }}

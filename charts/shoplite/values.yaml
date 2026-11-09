@@ -1,0 +1,162 @@
+# Aucun secret ici : les Secrets listés dans `secrets` doivent déjà exister (voir README).
+
+image:
+  registry: ghcr.io/ademhmercha
+  # Obligatoire : commit Git court des images (jamais "latest"). Fourni par Ansible.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Nom de domaine du site (obligatoire), p. ex. 20-215-53-8.sslip.io. APP_ORIGIN = https://<domain>.
+domain: ""
+
+gateway:
+  name: shoplite
+  namespace: traefik
+  sectionName: https
+
+# Adresses autorisées à fournir X-Forwarded-For au frontend (pods de Traefik = CIDR des pods).
+trustedProxyCidr: 192.168.0.0/16
+
+jwtKeyId: key-1
+
+# Noms des Secrets existants (clés attendues documentées dans le README).
+secrets:
+  auth: shoplite-auth
+  authMigrate: shoplite-auth-migrate
+  catalog: shoplite-catalog
+  catalogMigrate: shoplite-catalog-migrate
+  cart: shoplite-cart
+  orders: shoplite-orders
+  ordersMigrate: shoplite-orders-migrate
+  demo: shoplite-demo
+
+# Services de données (chart shoplite-data, même namespace).
+smtp:
+  host: mailpit
+  port: 1025
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+
+dashboard:
+  enabled: true
+
+# Compte de démonstration (Job en hook).
+seed:
+  enabled: true
+
+# Variables communes aux services Node. Les valeurs sont des gabarits Helm.
+commonEnv:
+  NODE_ENV: production
+  LOG_LEVEL: info
+  APP_ORIGIN: "https://{{ .Values.domain }}"
+  COOKIE_SECURE: "true"
+  # Deux sauts de confiance : Traefik puis Nginx (frontend).
+  TRUST_PROXY: "2"
+
+nodeResources: &nodeResources
+  requests: { cpu: 25m, memory: 64Mi }
+  limits: { cpu: 300m, memory: 192Mi }
+
+services:
+  frontend:
+    port: 8080
+    runAsUser: 101   # nginx-unprivileged
+    commonEnv: false
+    metrics: false
+    probes: { liveness: /healthz, readiness: /healthz }
+    emptyDirs: [/tmp, /etc/nginx/conf.d]
+    env:
+      AUTH_UPSTREAM: "auth.{{ .Release.Namespace }}.svc.cluster.local:3001"
+      CATALOG_UPSTREAM: "catalog.{{ .Release.Namespace }}.svc.cluster.local:3002"
+      CART_UPSTREAM: "cart.{{ .Release.Namespace }}.svc.cluster.local:3003"
+      ORDERS_UPSTREAM: "orders.{{ .Release.Namespace }}.svc.cluster.local:3004"
+      TRUSTED_PROXY_CIDR: "{{ .Values.trustedProxyCidr }}"
+    resources:
+      requests: { cpu: 10m, memory: 16Mi }
+      limits: { cpu: 200m, memory: 64Mi }
+
+  auth:
+    port: 3001
+    runAsUser: 1000   # utilisateur "node"
+    commonEnv: true
+    metrics: true
+    probes: { liveness: /healthz, readiness: /readyz }
+    emptyDirs: [/tmp]
+    env:
+      PORT: "3001"
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt/jwt-private.pem
+      JWT_KEY_ID: "{{ .Values.jwtKeyId }}"
+      SMTP_HOST: "{{ .Values.smtp.host }}"
+      SMTP_PORT: "{{ .Values.smtp.port }}"
+      ORDERS_INTERNAL_URL: "http://orders.{{ .Release.Namespace }}.svc.cluster.local:3004"
+      CART_INTERNAL_URL: "http://cart.{{ .Release.Namespace }}.svc.cluster.local:3003"
+    secretEnv:
+      - { name: DATABASE_URL, secret: auth, key: DATABASE_URL }
+      - { name: REDIS_URL, secret: auth, key: REDIS_URL }
+      - { name: TOTP_ENCRYPTION_KEY, secret: auth, key: TOTP_ENCRYPTION_KEY }
+      - { name: INTERNAL_API_TOKEN, secret: auth, key: INTERNAL_API_TOKEN }
+    # Clé privée de signature : montée en fichier (une seule clé du Secret, lecture seule).
+    secretFiles:
+      - { name: jwt, secret: auth, key: jwt-private.pem, mountPath: /run/secrets/jwt }
+    resources:
+      requests: { cpu: 40m, memory: 96Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+
+  catalog:
+    port: 3002
+    runAsUser: 1000
+    commonEnv: true
+    metrics: true
+    probes: { liveness: /healthz, readiness: /readyz }
+    emptyDirs: [/tmp]
+    env:
+      PORT: "3002"
+    secretEnv:
+      - { name: DATABASE_URL, secret: catalog, key: DATABASE_URL }
+    resources: *nodeResources
+
+  cart:
+    port: 3003
+    runAsUser: 1000
+    commonEnv: true
+    metrics: true
+    probes: { liveness: /healthz, readiness: /readyz }
+    emptyDirs: [/tmp]
+    env:
+      PORT: "3003"
+      AUTH_JWKS_URL: "http://auth.{{ .Release.Namespace }}.svc.cluster.local:3001/.well-known/jwks.json"
+    secretEnv:
+      - { name: REDIS_URL, secret: cart, key: REDIS_URL }
+      - { name: INTERNAL_API_TOKEN, secret: cart, key: INTERNAL_API_TOKEN }
+    resources: *nodeResources
+
+  orders:
+    port: 3004
+    runAsUser: 1000
+    commonEnv: true
+    metrics: true
+    probes: { liveness: /healthz, readiness: /readyz }
+    emptyDirs: [/tmp]
+    env:
+      PORT: "3004"
+      AUTH_JWKS_URL: "http://auth.{{ .Release.Namespace }}.svc.cluster.local:3001/.well-known/jwks.json"
+      CART_URL: "http://cart.{{ .Release.Namespace }}.svc.cluster.local:3003"
+      CATALOG_URL: "http://catalog.{{ .Release.Namespace }}.svc.cluster.local:3002"
+      UPSTREAM_TIMEOUT_MS: "3000"
+    secretEnv:
+      - { name: DATABASE_URL, secret: orders, key: DATABASE_URL }
+      - { name: INTERNAL_API_TOKEN, secret: orders, key: INTERNAL_API_TOKEN }
+    resources: *nodeResources
+
+# Jobs de migration (hooks pre-install / pre-upgrade), exécutés dans l'ordre des poids,
+# puis le compte de démonstration.
+migrations:
+  - { service: auth, secret: authMigrate, weight: -40 }
+  - { service: catalog, secret: catalogMigrate, weight: -30 }
+  - { service: orders, secret: ordersMigrate, weight: -20 }
+seedWeight: -10
+jobResources:
+  requests: { cpu: 25m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }

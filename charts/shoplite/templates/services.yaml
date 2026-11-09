@@ -1,0 +1,115 @@
+{{- $root := . }}
+{{- range $name, $svc := .Values.services }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    {{- include "shoplite.labels" $root | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+  ports:
+    - name: http
+      port: {{ $svc.port }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    {{- include "shoplite.labels" $root | nindent 4 }}
+spec:
+  replicas: {{ $svc.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        {{- include "shoplite.labels" $root | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "shoplite.podSecurity" $svc | nindent 8 }}
+      containers:
+        - name: {{ $name }}
+          image: {{ include "shoplite.image" (dict "root" $root "service" $name) }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $svc.port }}
+          env:
+            {{- if $svc.commonEnv }}
+            {{- range $k, $v := $root.Values.commonEnv }}
+            - name: {{ $k }}
+              value: {{ tpl (toString $v) $root | quote }}
+            {{- end }}
+            {{- end }}
+            {{- range $k, $v := $svc.env }}
+            - name: {{ $k }}
+              value: {{ tpl (toString $v) $root | quote }}
+            {{- end }}
+            {{- range $svc.secretEnv }}
+            {{- include "shoplite.secretEnv" (dict "root" $root "item" .) | nindent 12 }}
+            {{- end }}
+          securityContext:
+            {{- include "shoplite.containerSecurity" $root | nindent 12 }}
+          livenessProbe:
+            httpGet: { path: {{ $svc.probes.liveness }}, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet: { path: {{ $svc.probes.readiness }}, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          startupProbe:
+            httpGet: { path: {{ $svc.probes.liveness }}, port: http }
+            periodSeconds: 3
+            failureThreshold: 40
+          resources:
+            {{- toYaml $svc.resources | nindent 12 }}
+          volumeMounts:
+            {{- range $i, $path := $svc.emptyDirs }}
+            - { name: tmp-{{ $i }}, mountPath: {{ $path }} }
+            {{- end }}
+            {{- range $svc.secretFiles }}
+            - { name: {{ .name }}, mountPath: {{ .mountPath }}, readOnly: true }
+            {{- end }}
+      volumes:
+        {{- range $i, $path := $svc.emptyDirs }}
+        - { name: tmp-{{ $i }}, emptyDir: {} }
+        {{- end }}
+        {{- range $svc.secretFiles }}
+        - name: {{ .name }}
+          secret:
+            secretName: {{ index $root.Values.secrets .secret }}
+            defaultMode: 0444
+            items:
+              - { key: {{ .key }}, path: {{ .key }} }
+        {{- end }}
+{{- if and $svc.metrics $root.Values.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    {{- include "shoplite.labels" $root | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ $root.Values.serviceMonitor.interval }}
+{{- end }}
+{{- end }}

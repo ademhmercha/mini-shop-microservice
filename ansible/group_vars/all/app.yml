@@ -1,0 +1,22 @@
+---
+# Application ShopLite (phase 5B).
+shoplite_namespace: shoplite
+shoplite_domain: "{{ platform_domain }}"
+shoplite_image_registry: ghcr.io/ademhmercha
+# Étiquette des images : commit Git court par défaut (scripts/build-push.sh). Surcharge : -e shoplite_image_tag=...
+shoplite_image_tag: "{{ lookup('ansible.builtin.pipe', 'git -C ' ~ playbook_dir ~ ' rev-parse --short HEAD') }}"
+shoplite_jwt_key_id: key-1
+
+# Secrets : valeurs dans vault.yml (convention vars/vault).
+shoplite_postgres_password: "{{ vault_shoplite_postgres_password }}"
+shoplite_auth_db_owner_password: "{{ vault_shoplite_auth_db_owner_password }}"
+shoplite_auth_db_app_password: "{{ vault_shoplite_auth_db_app_password }}"
+shoplite_catalog_db_owner_password: "{{ vault_shoplite_catalog_db_owner_password }}"
+shoplite_catalog_db_app_password: "{{ vault_shoplite_catalog_db_app_password }}"
+shoplite_orders_db_owner_password: "{{ vault_shoplite_orders_db_owner_password }}"
+shoplite_orders_db_app_password: "{{ vault_shoplite_orders_db_app_password }}"
+shoplite_redis_password: "{{ vault_shoplite_redis_password }}"
+shoplite_totp_encryption_key: "{{ vault_shoplite_totp_encryption_key }}"
+shoplite_internal_api_token: "{{ vault_shoplite_internal_api_token }}"
+shoplite_demo_password: "{{ vault_shoplite_demo_password }}"
+shoplite_jwt_private_key: "{{ vault_shoplite_jwt_private_key }}"

@@ -1,0 +1,11 @@
+---
+- name: Application ShopLite (secrets, données, application)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  environment:
+    K8S_AUTH_KUBECONFIG: "{{ platform_kubeconfig }}"
+  roles:
+    - role: shoplite
+      tags: [shoplite]

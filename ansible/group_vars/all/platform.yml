@@ -28,5 +28,5 @@ platform_cert_issuer: letsencrypt-production
 platform_letsencrypt_email: "{{ vault_letsencrypt_email }}"
 platform_grafana_admin_password: "{{ vault_grafana_admin_password }}"
 
-# Page de test "hello" (mettre false pour la supprimer).
-platform_hello_enabled: true
+# Page de test "hello" de la phase 5A : désactivée (l'application occupe le domaine).
+platform_hello_enabled: false

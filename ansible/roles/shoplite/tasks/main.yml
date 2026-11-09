@@ -1,0 +1,80 @@
+---
+# Niveau "restricted" en enforce, audit et warn : tout pod non conforme est refusé.
+- name: Créer le namespace avec Pod Security "restricted"
+  tags: [shoplite_data]
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ shoplite_namespace }}"
+        labels:
+          pod-security.kubernetes.io/enforce: restricted
+          pod-security.kubernetes.io/enforce-version: latest
+          pod-security.kubernetes.io/audit: restricted
+          pod-security.kubernetes.io/audit-version: latest
+          pod-security.kubernetes.io/warn: restricted
+          pod-security.kubernetes.io/warn-version: latest
+
+# Les valeurs viennent du coffre ; no_log empêche toute fuite dans les journaux.
+- name: Créer les Secrets Kubernetes depuis le coffre
+  tags: [shoplite_data]
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ item.name }}"
+        namespace: "{{ shoplite_namespace }}"
+      type: Opaque
+      stringData: "{{ item.data }}"
+  loop: "{{ shoplite_secret_definitions }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+
+- name: Installer les données (PostgreSQL, Redis, Mailpit)
+  tags: [shoplite_data]
+  kubernetes.core.helm:
+    name: "{{ shoplite_data_release }}"
+    chart_ref: "{{ shoplite_charts_dir }}/shoplite-data"
+    release_namespace: "{{ shoplite_namespace }}"
+    state: present
+    wait: true
+    wait_timeout: "{{ shoplite_wait_timeout }}"
+
+- name: Attendre que PostgreSQL et Redis soient prêts
+  tags: [shoplite_data]
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ shoplite_namespace }}"
+    label_selectors:
+      - "app.kubernetes.io/name={{ item }}"
+    wait: true
+    wait_condition:
+      type: Ready
+      status: "True"
+    wait_timeout: 300
+  loop: [postgres, redis]
+
+# atomic : retour automatique à la version précédente (ou désinstallation) en cas d'échec.
+# Les migrations et le compte de démonstration sont des hooks Helm exécutés avant l'installation.
+- name: Installer l'application
+  tags: [shoplite_app]
+  kubernetes.core.helm:
+    name: "{{ shoplite_app_release }}"
+    chart_ref: "{{ shoplite_charts_dir }}/shoplite"
+    release_namespace: "{{ shoplite_namespace }}"
+    state: present
+    atomic: true
+    wait: true
+    wait_timeout: "{{ shoplite_wait_timeout }}"
+    values:
+      image:
+        registry: "{{ shoplite_image_registry }}"
+        tag: "{{ shoplite_image_tag }}"
+      domain: "{{ shoplite_domain }}"
+      jwtKeyId: "{{ shoplite_jwt_key_id }}"

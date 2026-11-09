@@ -1,0 +1,6 @@
+apiVersion: v2
+name: shoplite-data
+description: Données de ShopLite - PostgreSQL, Redis et Mailpit (mots de passe fournis par des Secrets existants)
+type: application
+version: 0.1.0
+appVersion: "postgres 17.11 / redis 7.4.12 / mailpit 1.33.0"

@@ -1,9 +1,19 @@
 ---
 # Le manifeste officiel (version épinglée) est téléchargé puis adapté :
 # ressources du déploiement et classe de stockage par défaut.
+- name: Télécharger le manifeste officiel de local-path-provisioner
+  ansible.builtin.uri:
+    url: "{{ storage_manifest_url }}"
+    return_content: true
+  register: storage_manifest
+  until: storage_manifest.status == 200
+  retries: 6
+  delay: 10
+  changed_when: false  # lecture seule
+
 - name: Lire le manifeste officiel de local-path-provisioner
   ansible.builtin.set_fact:
-    storage_documents: "{{ lookup('ansible.builtin.url', storage_manifest_url, split_lines=false) | from_yaml_all | select | list }}"
+    storage_documents: "{{ storage_manifest.content | from_yaml_all | select | list }}"
 
 # Le Deployment passe en dernier : il monte la ConfigMap, qui doit exister avant.
 - name: Ordonner les ressources (Deployment en dernier)

@@ -1,0 +1,4 @@
+# Valeurs minimales pour `helm lint` / `helm template` (le tag d'image et le domaine sont obligatoires).
+image:
+  tag: lint
+domain: shoplite.example.test

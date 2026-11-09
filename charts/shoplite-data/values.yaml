@@ -1,0 +1,37 @@
+# Les mots de passe ne figurent JAMAIS ici : les Secrets ci-dessous doivent exister avant l'installation
+# (ils sont créés par Ansible depuis le coffre). Voir le README.
+
+postgres:
+  image: postgres:17.11-alpine3.23   # identique à docker-compose.yml
+  # Secret attendu, clés : POSTGRES_PASSWORD, AUTH_DB_OWNER_PASSWORD, AUTH_DB_APP_PASSWORD,
+  # CATALOG_DB_OWNER_PASSWORD, CATALOG_DB_APP_PASSWORD, ORDERS_DB_OWNER_PASSWORD, ORDERS_DB_APP_PASSWORD
+  existingSecret: postgres-credentials
+  runAsUser: 70   # utilisateur "postgres" de l'image alpine
+  storage:
+    size: 2Gi
+    storageClassName: ""   # vide = classe par défaut (local-path)
+  resources:
+    requests: { cpu: 50m, memory: 160Mi }
+    limits: { cpu: 500m, memory: 384Mi }
+
+redis:
+  image: redis:7.4.12-alpine3.21   # identique à docker-compose.yml
+  # Secret attendu, clé : REDIS_PASSWORD
+  existingSecret: redis-credentials
+  runAsUser: 999
+  runAsGroup: 1000
+  maxmemory: 128mb
+  storage:
+    size: 512Mi
+    storageClassName: ""
+  resources:
+    requests: { cpu: 20m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 192Mi }
+
+mailpit:
+  image: axllent/mailpit:v1.33.0   # identique à docker-compose.yml
+  runAsUser: 10001
+  maxMessages: 500
+  resources:
+    requests: { cpu: 10m, memory: 24Mi }
+    limits: { cpu: 100m, memory: 96Mi }
