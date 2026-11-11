@@ -1,12 +1,75 @@
 # ShopLite – Maison Argile
 
-Boutique en ligne de céramique artisanale, en microservices, conçue pour être déployée plus tard sur un cluster Kubernetes (Ansible). Le paiement se fait **sur place** : il n'y a volontairement aucune passerelle de paiement.
+Boutique en ligne de céramique artisanale, en microservices, **déployée sur un cluster Kubernetes construit de zéro avec Terraform et Ansible sur Azure**. Le paiement se fait **sur place** : il n'y a volontairement aucune passerelle de paiement.
 
 ## Aperçu
 
 ![Page d'accueil de la boutique Maison Argile : titre « Des objets de terre, faits pour durer » et illustration de céramiques](docs/images/boutique-accueil.png)
 
 *Page d'accueil de Maison Argile, déployée sur le cluster Kubernetes et servie depuis un domaine sslip.io.*
+
+## Ce que démontre ce projet
+
+- **Infrastructure Azure en Terraform** : réseau virtuel, pare-feu (NSG), deux machines Ubuntu 24.04 et état distant dans un compte de stockage Azure.
+- **Cluster Kubernetes 1.36 installé par Ansible avec kubeadm** : inventaire dynamique Azure, durcissement des machines, containerd et Calico, sans service managé (pas d'AKS).
+- **Plateforme moderne** : Gateway API avec Traefik, stockage `local-path`, metrics-server sécurisé (certificats de service des kubelets signés par le cluster).
+- **HTTPS automatique** : cert-manager et Let's Encrypt (défi HTTP-01 via la Gateway), avec redirection de HTTP vers HTTPS.
+- **Supervision** : Prometheus et Grafana, avec un tableau de bord par service selon la méthode RED.
+- **Sécurité** : Pod Security `restricted`, pods non-root en lecture seule, secrets chiffrés dans Ansible Vault (jamais dans Git), endpoints techniques bloqués depuis Internet.
+- **Reconstruction reproductible** : tout l'environnement se recrée avec deux commandes, `terraform apply` puis `ansible-playbook playbooks/site.yml` (voir [Coûts](#coûts)).
+
+## Chaîne de déploiement
+
+```mermaid
+flowchart LR
+  subgraph poste["Poste de travail (WSL)"]
+    TF["Terraform<br/>infra/"]
+    DK["docker build + push<br/>scripts/build-push.sh"]
+    AN["Ansible<br/>ansible/"]
+    HM["Helm (piloté par Ansible)<br/>charts/"]
+  end
+  GH[("ghcr.io<br/>images ShopLite")]
+  subgraph azure["Azure (polandcentral)"]
+    RG["Groupe de ressources<br/>réseau, NSG, 2 VM Ubuntu 24.04"]
+    subgraph k8s["Cluster Kubernetes 1.36 (kubeadm)"]
+      PLAT["Plateforme<br/>Traefik, cert-manager, metrics-server,<br/>local-path, Prometheus, Grafana"]
+      APP["ShopLite<br/>frontend, auth, catalog, cart, orders<br/>PostgreSQL, Redis, Mailpit"]
+    end
+  end
+  TF -->|"1. crée"| RG
+  AN -->|"2. SSH : durcit, kubeadm, containerd, Calico"| k8s
+  AN -->|"3. installe"| PLAT
+  DK -->|"publie"| GH
+  AN --> HM
+  HM -->|"4. déploie"| APP
+  GH -.->|"images"| APP
+```
+
+### Technologies et versions
+
+| Domaine | Technologie | Version |
+|---|---|---|
+| Infrastructure | Terraform | ≥ 1.9 (utilisé : 1.17.1) |
+| | Provider `azurerm` / `http` | 4.81.0 (`~> 4.0`) / 3.6.3 (`~> 3.4`) |
+| | Machines Azure | `Standard_B2als_v2` (2 vCPU, 4 Go), Ubuntu 24.04 LTS (Canonical) |
+| Automatisation | Ansible | ansible-core 2.21.6 (paquet `ansible` 14.6.0) |
+| | Collections | `azure.azcollection` 4.2.0, `ansible.posix` 2.2.2, `kubernetes.core` 6.6.0, `community.general` 14.0.0 |
+| | Helm | 4.3.0 |
+| Kubernetes | Kubernetes (kubeadm, kubelet, kubectl) | 1.36.6 |
+| | containerd | 2.4.2 |
+| | Calico (opérateur Tigera) | v3.32.3 (VXLAN) |
+| Plateforme | Gateway API (CRD standard) | v1.6.3 |
+| | Traefik (chart) | 42.3.1 (Traefik v3.7.17) |
+| | cert-manager | v1.21.3 |
+| | metrics-server (chart) | 3.14.0 (metrics-server 0.9.0) |
+| | local-path-provisioner | v0.0.37 |
+| | kube-prometheus-stack | 93.1.0 (Prometheus Operator v0.95.1, Grafana 13.3.0) |
+| Application | Node.js / Express | 24.22.2 / 5.3.0 |
+| | React / Vite | 19.3.1 / 8.3.6 |
+| | PostgreSQL / Redis / Mailpit | 17.11 / 7.4.12 / v1.33.0 |
+| | Nginx (`nginx-unprivileged`) | 1.31.2 |
+
+Sources : `infra/versions.tf` et `infra/.terraform.lock.hcl`, `ansible/requirements.yml`, `ansible/group_vars/all/kubernetes.yml` et `platform.yml`, `package.json` et `Dockerfile` de chaque service, `docker-compose.yml`. La version de Grafana est celle relevée sur le cluster.
 
 ## Architecture
 
@@ -26,69 +89,6 @@ Navigateur ──► frontend (Nginx non-root, :8080) ──┬─ /api/auth/*  
 | `services/orders` | Commandes : relit panier et prix côté serveur | PostgreSQL |
 
 Chaque service a **sa base et son utilisateur** (un propriétaire pour les migrations, un utilisateur applicatif aux droits minimaux). Les services vérifient les jetons avec la **clé publique** du JWKS d'auth et ne connaissent jamais la clé privée. Nginx retire le préfixe `/api/<service>` et bloque `/metrics`, `/docs`, `/healthz`, `/readyz` et `/internal` depuis l'extérieur.
-
-## Lancement en local
-
-Prérequis : Docker (Compose v2) et Node.js ≥ 20.19 (pour le script de clés).
-
-```bash
-node scripts/gen-keys.mjs        # crée .secrets/ et .env (ignorés par Git)
-docker compose up --build        # construit et démarre tout
-```
-
-- Site : <http://localhost:8080>
-- E-mails de test (Mailpit) : <http://localhost:8025>
-- Compte de démonstration (vérifié, sans 2FA) : `demo@maison-argile.test` / `Argile-Demo-2026!`
-- Pour créer un autre compte : inscription → ouvrir Mailpit → cliquer le lien de vérification.
-
-Rotation de la clé de signature : `node scripts/gen-keys.mjs --rotate` puis `docker compose up -d auth` (l'ancienne clé publique reste publiée dans le JWKS, les jetons en cours restent valides ≤ 15 min).
-
-> Port 8080 déjà utilisé sur votre machine ? Lancez par exemple `FRONTEND_PORT=18080 docker compose up --build` (PowerShell : `$env:FRONTEND_PORT=18080`) : le site, les cookies et le contrôle CSRF suivent ce port.
-
-> En local le site est servi en HTTP : `COOKIE_SECURE=false` dans le compose. En production, laissez la valeur par défaut (`true`) derrière TLS.
-
-## Tests
-
-Chaque service expose `npm test`, `npm run test:coverage` et `npm run lint`.
-
-```bash
-cd services/auth && npm ci && npm test && npm run test:coverage && npm run lint     # idem catalog, cart, orders, frontend
-npm audit --omit=dev                                                                 # dans chaque service
-node scripts/e2e-inprocess.mjs   # parcours complet inter-services sans Docker (PGlite + ioredis-mock)
-```
-
-Les tests d'intégration utilisent PGlite (PostgreSQL en WebAssembly) et `ioredis-mock` : aucun Docker nécessaire pour les lancer. Le seuil de couverture (80 % des lignes) est appliqué dans `vitest.config.js`.
-
-## Routes (derrière Nginx : préfixe `/api/<service>`)
-
-**auth** (`/api/auth`) – documentation OpenAPI sur `/docs` du service
-`POST /register` · `POST /verify-email` · `POST /resend-verification` · `POST /login` · `POST /login/2fa` · `POST /refresh` · `POST /logout` · `POST /forgot-password` · `POST /reset-password` · `POST /reauth`
-`GET|PATCH|DELETE /me` · `POST /me/password` · `POST /me/email` · `POST /me/2fa/{setup,enable,disable}` · `GET /me/sessions` · `DELETE /me/sessions[/:id]` · `GET /me/export` · `GET /.well-known/jwks.json`
-
-**catalog** (`/api/catalog`) : `GET /products?category=&page=&pageSize=&featured=&ids=` · `GET /products/:id|slug` · `GET /categories`
-
-**cart** (`/api/cart`) : `GET /` · `POST /items` · `PUT|DELETE /items/:productId` · `DELETE /` · `POST /merge`
-
-**orders** (`/api/orders`) : `POST /` · `GET /me` · `GET /:id`
-
-**Tous les services** : `GET /healthz`, `GET /readyz` (503 si une dépendance manque), `GET /metrics` (Prometheus), `GET /docs` et `/openapi.json`.
-
-## Conventions backend (prêtes pour Kubernetes)
-
-- Configuration par variables d'environnement uniquement, validée par Zod au démarrage ; `.env.example` dans chaque service.
-- Logs JSON (pino) avec `X-Request-Id` propagé et champs sensibles masqués.
-- Arrêt propre sur SIGTERM ; migrations versionnées via `node src/migrate.js` (futur `Job`), avec `MIGRATION_DATABASE_URL`. La commande attend la base : jusqu'à 10 tentatives à délai croissant (1 s à 9 s, réglable par `MIGRATION_RETRY_ATTEMPTS` et `MIGRATION_RETRY_MAX_DELAY_MS`), chaque tentative est journalisée ; seules les erreurs de connexion sont réessayées (un mauvais mot de passe échoue immédiatement).
-- Healthcheck PostgreSQL en TCP (`pg_isready -h 127.0.0.1`) : le serveur temporaire de l'initialisation n'écoute que sur le socket Unix et ne peut donc pas être pris pour le serveur définitif.
-- Images multi-étapes, utilisateur non-root, `HEALTHCHECK`, pas de npm dans l'image finale.
-
-## Design
-
-Palette imposée en variables CSS (`src/styles/tokens.css`), Fraunces + Manrope installées localement (`@fontsource-variable`), illustrations SVG originales dans `src/illustrations/Ceramic.jsx`, icônes lucide. Un test calcule les contrastes WCAG AA à partir des variables réelles.
-Note : l'accent terre cuite (#B5532F) n'atteint 4,5:1 que sur la surface des cartes et sous du texte blanc ; sur le fond principal il n'est donc utilisé en texte que pour les grands titres, et le vert sauge uniquement en aplats/bordures avec texte foncé.
-
-![Page Panier : trois articles (tasse, théière, bol), récapitulatif de la commande à 264,00 € et bouton « Passer la commande »](docs/images/boutique-panier.png)
-
-*Page Panier : le récapitulatif est calculé et la commande se règle sur place, sans paiement en ligne.*
 
 ## Déploiement sur Kubernetes (Azure)
 
@@ -156,5 +156,104 @@ Grafana n'est pas exposé sur Internet : accès par `kubectl port-forward` (voir
     <td><em>Tableau de bord Kubernetes / Compute Resources / Cluster : utilisation CPU et mémoire du cluster, par namespace.</em></td>
   </tr>
 </table>
+
+## Problèmes rencontrés et solutions
+
+**Tailles de machines bloquées par l'abonnement étudiant.** *Contexte :* la création des machines `Standard_B2als_v2` échouait avec l'abonnement « Azure for Students ». *Cause :* la restriction `NotAvailableForSubscription` s'applique à cette taille : elle interdit la région elle-même en `italynorth`, `germanywestcentral` et `francecentral`, la limite aux zones de disponibilité en `austriaeast`, et seule `polandcentral` n'a aucune restriction. *Solution :* `polandcentral` par défaut, une variable `location` validée sur les cinq régions autorisées, et des machines sans zone de disponibilité. Le quota régional de 6 vCPU limite en plus le cluster à 3 machines.
+
+**Calico en VXLAN.** *Contexte :* le réseau des pods doit relier les nœuds entre eux. *Cause :* Azure bloque le protocole IP-in-IP (IP 4) entre machines virtuelles, l'encapsulation habituelle de Calico. *Solution :* encapsulation VXLAN (UDP 4789, déjà autorisé par la règle interne du NSG), BGP désactivé, et transfert IP activé sur les interfaces réseau.
+
+**Condition de concurrence au premier démarrage de PostgreSQL.** *Contexte :* au premier lancement, les migrations échouaient parfois alors que la base semblait prête. *Cause :* l'image PostgreSQL démarre un serveur temporaire, joignable seulement par socket Unix, pour exécuter les scripts d'initialisation, puis le redémarre : un contrôle de santé sur le socket le déclare prêt trop tôt. *Solution :* contrôle de santé en TCP (`pg_isready -h 127.0.0.1`), dans le compose comme dans les sondes Kubernetes, et migrations qui réessaient jusqu'à 10 fois avec un délai croissant (seules les erreurs de connexion sont réessayées).
+
+**Gateway API et Traefik plutôt qu'Ingress NGINX.** *Contexte :* il faut exposer le site en HTTP/HTTPS sans répartiteur de charge cloud. *Cause :* Ingress NGINX a été retiré en mars 2026 (information externe au dépôt) et l'API Ingress est figée au profit de la Gateway API. *Solution :* CRD Gateway API v1.6.3 et Traefik comme contrôleur, une Gateway partagée `traefik/shoplite` (écouteurs HTTP et HTTPS), une HTTPRoute par application, Traefik en `hostPort` 80/443 sur le nœud de travail, et cert-manager qui émet le certificat par défi HTTP-01 via cette Gateway.
+
+**Vraie adresse IP des visiteurs derrière Traefik.** *Contexte :* les requêtes traversent Traefik puis le Nginx du frontend avant d'atteindre les services. *Cause :* Nginx voyait l'adresse du pod Traefik comme client et la transmettait aux services, si bien que la limitation du nombre de tentatives par IP aurait été partagée entre tous les visiteurs. *Solution :* `set_real_ip_from` limité au CIDR des pods (donc aux pods Traefik) avec `real_ip_header X-Forwarded-For` dans le Nginx du frontend, et `TRUST_PROXY=2` pour les services. L'adresse réelle du visiteur apparaît dans les journaux d'audit.
+
+**IP dynamique de l'administrateur.** *Contexte :* SSH (22) et l'API Kubernetes (6443) ne doivent être joignables que depuis la machine de l'administrateur, dont l'IP publique change. *Cause :* le NSG est fixé à une adresse précise. *Solution :* Terraform détecte l'IP publique à chaque `plan` (source `http` vers `api.ipify.org`, remplaçable par la variable `allowed_cidrs`), donc un `terraform apply` met à jour le pare-feu.
+
+## Coûts
+
+L'environnement est **éphémère** : il est conçu pour être créé au début d'une séance de travail et détruit à la fin, car les machines Azure sont facturées tant qu'elles existent. Estimation de `infra/README.md` : environ 0,10 €/h pour deux machines (calcul, IP publiques et disques), à vérifier sur le calculateur Azure.
+
+```bash
+# Reconstruction complète (prérequis : az login, ARM_SUBSCRIPTION_ID, clé SSH, images publiées : voir infra/README.md)
+cd infra && terraform apply
+cd ../ansible && ansible-playbook playbooks/site.yml
+
+# Destruction (arrête la facturation)
+cd ../infra && terraform destroy
+```
+
+`site.yml` enchaîne le durcissement des machines, Kubernetes, la plateforme et l'application. Le domaine sslip.io suit l'IP publique de `worker-1` : il change à chaque reconstruction, et un nouveau certificat est alors émis.
+
+## Développement
+
+### Lancement en local
+
+Prérequis : Docker (Compose v2) et Node.js ≥ 20.19 (pour le script de clés).
+
+```bash
+node scripts/gen-keys.mjs        # crée .secrets/ et .env (ignorés par Git)
+docker compose up --build        # construit et démarre tout
+```
+
+- Site : <http://localhost:8080>
+- E-mails de test (Mailpit) : <http://localhost:8025>
+- Compte de démonstration (vérifié, sans 2FA) : `demo@maison-argile.test` / `Argile-Demo-2026!`. **Ce mot de passe ne vaut que pour `docker compose`.** Dans le cluster Kubernetes, le compte de démonstration a un mot de passe différent, généré et stocké dans le coffre Ansible (`vault_shoplite_demo_password`).
+- Pour créer un autre compte : inscription → ouvrir Mailpit → cliquer le lien de vérification.
+
+Rotation de la clé de signature : `node scripts/gen-keys.mjs --rotate` puis `docker compose up -d auth` (l'ancienne clé publique reste publiée dans le JWKS, les jetons en cours restent valides ≤ 15 min).
+
+> Port 8080 déjà utilisé sur votre machine ? Lancez par exemple `FRONTEND_PORT=18080 docker compose up --build` (PowerShell : `$env:FRONTEND_PORT=18080`) : le site, les cookies et le contrôle CSRF suivent ce port.
+
+> En local le site est servi en HTTP : `COOKIE_SECURE=false` dans le compose. En production, laissez la valeur par défaut (`true`) derrière TLS.
+
+### Tests
+
+Chaque service expose `npm test`, `npm run test:coverage` et `npm run lint`.
+
+```bash
+cd services/auth && npm ci && npm test && npm run test:coverage && npm run lint     # idem catalog, cart, orders, frontend
+npm audit --omit=dev                                                                 # dans chaque service
+node scripts/e2e-inprocess.mjs   # parcours complet inter-services sans Docker (PGlite + ioredis-mock)
+```
+
+Les tests d'intégration utilisent PGlite (PostgreSQL en WebAssembly) et `ioredis-mock` : aucun Docker nécessaire pour les lancer. Le seuil de couverture (80 % des lignes) est appliqué dans `vitest.config.js`.
+
+### Routes
+
+<details>
+<summary>Routes de l'API (derrière Nginx : préfixe <code>/api/&lt;service&gt;</code>)</summary>
+
+**auth** (`/api/auth`) – documentation OpenAPI sur `/docs` du service
+`POST /register` · `POST /verify-email` · `POST /resend-verification` · `POST /login` · `POST /login/2fa` · `POST /refresh` · `POST /logout` · `POST /forgot-password` · `POST /reset-password` · `POST /reauth`
+`GET|PATCH|DELETE /me` · `POST /me/password` · `POST /me/email` · `POST /me/2fa/{setup,enable,disable}` · `GET /me/sessions` · `DELETE /me/sessions[/:id]` · `GET /me/export` · `GET /.well-known/jwks.json`
+
+**catalog** (`/api/catalog`) : `GET /products?category=&page=&pageSize=&featured=&ids=` · `GET /products/:id|slug` · `GET /categories`
+
+**cart** (`/api/cart`) : `GET /` · `POST /items` · `PUT|DELETE /items/:productId` · `DELETE /` · `POST /merge`
+
+**orders** (`/api/orders`) : `POST /` · `GET /me` · `GET /:id`
+
+**Tous les services** : `GET /healthz`, `GET /readyz` (503 si une dépendance manque), `GET /metrics` (Prometheus), `GET /docs` et `/openapi.json`.
+
+</details>
+
+### Conventions backend (prêtes pour Kubernetes)
+
+- Configuration par variables d'environnement uniquement, validée par Zod au démarrage ; `.env.example` dans chaque service.
+- Logs JSON (pino) avec `X-Request-Id` propagé et champs sensibles masqués.
+- Arrêt propre sur SIGTERM ; migrations versionnées via `node src/migrate.js` (futur `Job`), avec `MIGRATION_DATABASE_URL`. La commande attend la base : jusqu'à 10 tentatives à délai croissant (1 s à 9 s, réglable par `MIGRATION_RETRY_ATTEMPTS` et `MIGRATION_RETRY_MAX_DELAY_MS`), chaque tentative est journalisée ; seules les erreurs de connexion sont réessayées (un mauvais mot de passe échoue immédiatement).
+- Healthcheck PostgreSQL en TCP (`pg_isready -h 127.0.0.1`) : le serveur temporaire de l'initialisation n'écoute que sur le socket Unix et ne peut donc pas être pris pour le serveur définitif.
+- Images multi-étapes, utilisateur non-root, `HEALTHCHECK`, pas de npm dans l'image finale.
+
+### Design
+
+Palette imposée en variables CSS (`src/styles/tokens.css`), Fraunces + Manrope installées localement (`@fontsource-variable`), illustrations SVG originales dans `src/illustrations/Ceramic.jsx`, icônes lucide. Un test calcule les contrastes WCAG AA à partir des variables réelles.
+Note : l'accent terre cuite (#B5532F) n'atteint 4,5:1 que sur la surface des cartes et sous du texte blanc ; sur le fond principal il n'est donc utilisé en texte que pour les grands titres, et le vert sauge uniquement en aplats/bordures avec texte foncé.
+
+![Page Panier : trois articles (tasse, théière, bol), récapitulatif de la commande à 264,00 € et bouton « Passer la commande »](docs/images/boutique-panier.png)
+
+*Page Panier : le récapitulatif est calculé et la commande se règle sur place, sans paiement en ligne.*
 
 Voir aussi [SECURITY.md](SECURITY.md).
