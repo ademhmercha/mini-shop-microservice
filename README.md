@@ -2,6 +2,12 @@
 
 Boutique en ligne de céramique artisanale, en microservices, conçue pour être déployée plus tard sur un cluster Kubernetes (Ansible). Le paiement se fait **sur place** : il n'y a volontairement aucune passerelle de paiement.
 
+## Aperçu
+
+![Page d'accueil de la boutique Maison Argile : titre « Des objets de terre, faits pour durer » et illustration de céramiques](docs/images/boutique-accueil.png)
+
+*Page d'accueil de Maison Argile, déployée sur le cluster Kubernetes et servie depuis un domaine sslip.io.*
+
 ## Architecture
 
 ```
@@ -79,5 +85,76 @@ Les tests d'intégration utilisent PGlite (PostgreSQL en WebAssembly) et `ioredi
 
 Palette imposée en variables CSS (`src/styles/tokens.css`), Fraunces + Manrope installées localement (`@fontsource-variable`), illustrations SVG originales dans `src/illustrations/Ceramic.jsx`, icônes lucide. Un test calcule les contrastes WCAG AA à partir des variables réelles.
 Note : l'accent terre cuite (#B5532F) n'atteint 4,5:1 que sur la surface des cartes et sous du texte blanc ; sur le fond principal il n'est donc utilisé en texte que pour les grands titres, et le vert sauge uniquement en aplats/bordures avec texte foncé.
+
+![Page Panier : trois articles (tasse, théière, bol), récapitulatif de la commande à 264,00 € et bouton « Passer la commande »](docs/images/boutique-panier.png)
+
+*Page Panier : le récapitulatif est calculé et la commande se règle sur place, sans paiement en ligne.*
+
+## Déploiement sur Kubernetes (Azure)
+
+L'application tourne sur un cluster Kubernetes (kubeadm) hébergé sur deux machines virtuelles Azure :
+
+- **Infrastructure Azure** : Terraform crée dans [`infra/`](infra/README.md) le réseau, le pare-feu (NSG), un plan de contrôle (`cp-1`) et un nœud de travail (`worker-1`) Ubuntu 24.04 (`terraform init && terraform apply`).
+- **Automatisation** : Ansible ([`ansible/`](ansible/README.md)) configure et durcit les machines, installe Kubernetes 1.36 avec containerd et Calico, puis la plateforme (Traefik et Gateway API, cert-manager et Let's Encrypt, metrics-server, stockage local-path, Prometheus et Grafana) et enfin l'application (`ansible-playbook playbooks/site.yml`).
+- **Application** : deux charts Helm, [`charts/shoplite-data`](charts/shoplite-data/README.md) (PostgreSQL, Redis, Mailpit) et [`charts/shoplite`](charts/shoplite/README.md) (les cinq services), avec des images publiées par `scripts/build-push.sh`. Les secrets sont dans le coffre Ansible, jamais dans Git.
+
+### Infrastructure Azure
+
+![Portail Azure : groupe de ressources rg-shoplite contenant les machines cp-1 et worker-1, leurs disques, interfaces réseau et le groupe de sécurité nsg-shoplite](docs/images/azure-ressources.png)
+
+*Le groupe de ressources `rg-shoplite`, créé par Terraform : machines virtuelles, disques, interfaces réseau et groupe de sécurité réseau (NSG).*
+
+![Portail Azure : liste des machines virtuelles cp-1 et worker-1, taille Standard_B2als_v2, région Poland Central, état Running](docs/images/azure-machines.png)
+
+*Les deux machines `cp-1` et `worker-1` (Standard_B2als_v2, Poland Central) sont en cours d'exécution, chacune avec une IP publique.*
+
+![Portail Azure : règles du groupe de sécurité nsg-shoplite, avec SSH et l'API Kubernetes limités à une adresse, HTTP et HTTPS ouverts et un refus final de tout le reste](docs/images/azure-pare-feu.png)
+
+*Pare-feu `nsg-shoplite` : SSH (22) et API Kubernetes (6443) limités à l'adresse de l'administrateur, HTTP/HTTPS ouverts à tous, trafic interne au sous-réseau autorisé et tout le reste refusé.*
+
+### Automatisation (Ansible)
+
+![Terminal : récapitulatif de la seconde exécution d'ansible-playbook site.yml, avec changed=0 et failed=0 pour cp-1, localhost et worker-1](docs/images/ansible-idempotence.png)
+
+*Seconde exécution de `site.yml` : `changed=0` et `failed=0` sur toutes les cibles. Aucun changement, la configuration est idempotente.*
+
+### Cluster Kubernetes
+
+![Terminal : kubectl get nodes -o wide affiche cp-1 (control-plane) et worker-1 à l'état Ready, en version v1.36.6](docs/images/cluster-noeuds.png)
+
+*Les deux nœuds, `cp-1` (plan de contrôle) et `worker-1`, sont `Ready` en Kubernetes v1.36.6 avec containerd 2.4.2.*
+
+![Terminal : kubectl get pods -A liste tous les pods du cluster à l'état Running, sans redémarrage](docs/images/cluster-pods-tous.png)
+
+*Tous les pods du cluster sont `Running` et sans redémarrage : système Kubernetes, Calico, cert-manager, Traefik, metrics-server, supervision et ShopLite.*
+
+![Terminal : kubectl get pods,svc,pvc -n shoplite montre huit pods Running, huit Services ClusterIP et deux volumes persistants liés](docs/images/cluster-pods-shoplite.png)
+
+*Namespace `shoplite` : huit pods `Running`, uniquement des Services `ClusterIP` (rien n'est exposé directement) et deux volumes persistants (PostgreSQL et Redis) liés par `local-path`.*
+
+### Sécurité du déploiement
+
+![Terminal : kubectl get namespace shoplite --show-labels affiche les étiquettes Pod Security enforce, audit et warn à la valeur restricted](docs/images/pod-security.png)
+
+*Le namespace `shoplite` applique Pod Security Admission au niveau `restricted` (enforce, audit et warn) : tout pod non conforme est refusé.*
+
+![Terminal : trois requêtes curl vers /api/catalog/metrics, /docs et /internal depuis Internet renvoient toutes 404](docs/images/endpoints-bloques.png)
+
+*Depuis Internet, `/metrics`, `/docs` et `/internal` du service catalogue répondent 404 : Nginx bloque les endpoints techniques.*
+
+### Supervision
+
+Grafana n'est pas exposé sur Internet : accès par `kubectl port-forward` (voir [`ansible/README.md`](ansible/README.md)).
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/grafana-shoplite.png" alt="Tableau de bord Grafana ShopLite : requêtes par seconde, durée p95 par service et connexions réussies ou échouées du service auth" width="100%"></td>
+    <td width="50%"><img src="docs/images/grafana-cluster.png" alt="Tableau de bord Grafana Kubernetes / Compute Resources / Cluster : utilisation CPU et mémoire par namespace" width="100%"></td>
+  </tr>
+  <tr>
+    <td><em>Tableau de bord ShopLite (méthode RED) : requêtes par seconde, durée p95 et connexions du service auth. Le panneau « Taux d'erreurs 5xx » affiche « No data » : aucune erreur 5xx observée.</em></td>
+    <td><em>Tableau de bord Kubernetes / Compute Resources / Cluster : utilisation CPU et mémoire du cluster, par namespace.</em></td>
+  </tr>
+</table>
 
 Voir aussi [SECURITY.md](SECURITY.md).
